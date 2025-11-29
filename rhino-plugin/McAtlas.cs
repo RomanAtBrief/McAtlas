@@ -1,6 +1,8 @@
 // Import C# namespaces
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 
 // Import RhinoCommon namespaces
 using Rhino;
@@ -29,11 +31,29 @@ namespace rhino_plugin
         // 5. Actual command code
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
-            // Write to Rhino Console
-            RhinoApp.WriteLine("3d Maps will be soon");
-            
-            // Return success
-            return Result.Success;
+            try
+            {
+                // Path to the Tauri app in Applications folder
+                string appPath = "/Applications/tauri-app.app";
+
+                // Check if app exists
+                if (!Directory.Exists(appPath))
+                {
+                    RhinoApp.WriteLine("McAtlas app not found in Applications folder.");
+                    return Result.Failure;
+                }
+
+                // Launch the Tauri app
+                Process.Start("open", appPath);
+                
+                RhinoApp.WriteLine("McAtlas launched!");
+                return Result.Success;
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"Error: {ex.Message}");
+                return Result.Failure;
+            }
         }
     }
 }

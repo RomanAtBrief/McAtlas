@@ -1,22 +1,26 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>McAtlas</title>
 
-    <!-- Import Cesium -->
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.135/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.135/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>McAtlas</title>
 
-    <script type="module" src="/src/main.js"></script>
-  </head>
+  <!-- Import Cesium -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.135/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.135/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 
-  <body class="m-0 p-0 w-screen h-screen overflow-hidden">
+  <script type="module" src="/src/main.js"></script>
+</head>
 
-    <!-- Fullscreen Cesium View -->
-    <div id="cesiumContainer" class="absolute inset-0 w-screen h-screen"></div>
-    
-  </body>
+<body class="m-0 p-0 w-screen h-screen overflow-hidden">
+
+  <div class="p-7 w-full h-full">
+    <div id="cesiumContainer" class="relative w-full h-full rounded-lg overflow-hidden">
+    </div>
+  </div>
+
+</body>
+
 </html>

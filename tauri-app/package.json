@@ -10,7 +10,9 @@
     "tauri": "tauri"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.17",
     "@tauri-apps/cli": "^2",
+    "tailwindcss": "^4.1.17",
     "vite": "^6.0.0"
   }
 }

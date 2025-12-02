@@ -16,8 +16,8 @@
         "title": "tauri-app",
         "width": 800,
         "height": 600,
-        "minWidth": 800,
-        "minHeight": 600
+        "minWidth": 600,
+        "minHeight": 300
       }
     ],
     "security": {
@@ -34,5 +34,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "fs": {
+      "scope": ["$DOCUMENT/**"]
+    }
   }
 }

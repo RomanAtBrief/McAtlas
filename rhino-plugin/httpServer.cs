@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 
 // Import RhinoCommon namespaces
 using Rhino;
+using Rhino.DocObjects;
+using Rhino.Geometry;
 
 // Namespace
 namespace rhino_plugin
@@ -82,12 +84,7 @@ namespace rhino_plugin
             // Handle export geometry request
             if (request.Url.AbsolutePath == "/export-geometry")
             {
-                // For now, return test data (we'll read real geometry later)
-                string json = @"{
-                    ""type"": ""cube"",
-                    ""position"": { ""lat"": 40.7580, ""lon"": -73.9855, ""height"": 0 },
-                    ""size"": { ""width"": 20, ""depth"": 30, ""height"": 80 }
-                }";
+                string json = GetGeometryJson();
                 
                 byte[] buffer = Encoding.UTF8.GetBytes(json);
                 response.ContentType = "application/json";
@@ -104,6 +101,84 @@ namespace rhino_plugin
             }
             
             response.Close();
+        }
+
+        // Wrapper: run export on Rhino UI thread and return JSON
+        private string GetGeometryJson()
+        {
+            string result = null;
+
+            RhinoApp.InvokeOnUiThread((Action)(() =>
+            {
+                result = GetGeometryJsonInternal();
+            }));
+
+            if (string.IsNullOrEmpty(result))
+                result = @"{""error"":""Failed to generate geometry""}";
+
+            return result;
+        }
+
+        // Export cesium_massing layer to GLB on disk (UI thread) and return JSON
+        private string GetGeometryJsonInternal()
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+                return @"{""error"":""No active Rhino document""}";
+
+            var layer = doc.Layers.FindName("cesium_massing");
+            if (layer == null)
+                return @"{""error"":""Layer 'cesium_massing' not found""}";
+
+            var objs = doc.Objects.FindByLayer(layer);
+            if (objs == null || objs.Length == 0)
+                return @"{""error"":""No objects on 'cesium_massing'""}";
+
+            // Export directory: Documents/McAtlas
+            var exportDir = Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
+                "McAtlas");
+            Directory.CreateDirectory(exportDir);
+
+            var glbPath = Path.Combine(exportDir, "mcatlas_massing.glb");
+
+            // Deselect all
+            doc.Objects.UnselectAll();
+
+            // Select objects on cesium_massing layer
+            foreach (var obj in objs)
+            {
+                obj.Select(true);
+            }
+
+            // Export selected objects to glTF/GLB using Rhino's command-line exporter
+            // .glb extension forces the glTF exporter. Extra _Enter for default options.
+            var exportCmd = $"_-Export \"{glbPath}\" _Enter _Enter";
+            bool ok = RhinoApp.RunScript(exportCmd, false);
+
+            // Deselect all
+            doc.Objects.UnselectAll();
+
+            if (!ok)
+                return @"{""error"":""Export command failed""}";
+
+            // Hard-coded position for prototype (Manhattan)
+            const double lat = 40.7580;
+            const double lon = -73.9855;
+            const double height = 0.0;
+
+            // Build JSON with escaped path
+            var safePath = glbPath.Replace("\\", "\\\\");
+            var sb = new StringBuilder();
+            sb.Append("{");
+            sb.Append(@"""glbPath"":""").Append(safePath).Append("\",");
+            sb.Append(@"""position"":{");
+            sb.AppendFormat(System.Globalization.CultureInfo.InvariantCulture,
+                @"""lat"":{0},""lon"":{1},""height"":{2}", lat, lon, height);
+            sb.Append("}");
+            sb.Append("}");
+
+            return sb.ToString();
         }
 
         // Stop the HTTP server

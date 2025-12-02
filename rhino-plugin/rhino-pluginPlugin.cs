@@ -13,6 +13,8 @@ namespace rhino_plugin
     ///</summary>
     public class rhino_pluginPlugin : Rhino.PlugIns.PlugIn
     {
+        // HTTP server instance
+        private SimpleHttpServer _httpServer;
         public rhino_pluginPlugin()
         {
             Instance = this;
@@ -24,5 +26,24 @@ namespace rhino_plugin
         // You can override methods here to change the plug-in behavior on
         // loading and shut down, add options pages to the Rhino _Option command
         // and maintain plug-in wide options in a document.
+
+        // Called when plugin is loaded (Rhino starts)
+        protected override Rhino.PlugIns.LoadReturnCode OnLoad(ref string errorMessage)
+        {
+            // Start HTTP server
+            _httpServer = new SimpleHttpServer();
+            _httpServer.Start();
+            
+            return Rhino.PlugIns.LoadReturnCode.Success;
+        }
+
+        // Called when plugin is unloaded (Rhino closes)
+        protected override void OnShutdown()
+        {
+            // Stop HTTP server
+            _httpServer?.Stop();
+            
+            base.OnShutdown();
+        }
     }
 }

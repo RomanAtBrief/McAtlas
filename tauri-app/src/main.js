@@ -9,7 +9,7 @@ const { invoke } = window.__TAURI__.core;
 const viewer = await initCesiumViewer('cesiumContainer');
 
 // Initialize toolbar
-initToolbar();
+initToolbar(viewer);
 
 
 

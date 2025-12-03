@@ -1,6 +1,6 @@
 import { toggleSidePanel } from "./sidePanel.js";
 import { fetchGeometryFromRhino } from "../communication/rhino-bridge.js";
-import { addCubeToViewer } from "../world/cesium-geometry.js";
+import { addModelFromRhino } from "../world/cesium-geometry.js";
 
 function initToolbar(viewer) {
   // Side panel button
@@ -11,8 +11,7 @@ function initToolbar(viewer) {
     const data = await fetchGeometryFromRhino();
     
     if (data) {
-      addCubeToViewer(viewer, data);
-      console.log('Cube added to Cesium!');
+      await addModelFromRhino(viewer, data);
     }
   });
 }

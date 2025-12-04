@@ -173,8 +173,8 @@ namespace rhino_plugin
                 return @"{""error"":""Export command failed""}";
 
             // Hard-coded position for prototype (Manhattan)
-            const double lat = 40.7580;
-            const double lon = -73.9855;
+            const double lat = 40.7063;
+            const double lon = -74.0037;
             const double height = 0.0;
 
             // Build JSON with escaped path

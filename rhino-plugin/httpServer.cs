@@ -94,6 +94,16 @@ namespace rhino_plugin
                 
                 RhinoApp.WriteLine("Sent geometry to Tauri app");
             }
+            // Handle log messages from Tauri
+            else if (request.Url.AbsolutePath == "/log")
+            {
+                using (var reader = new StreamReader(request.InputStream))
+                {
+                    string message = await reader.ReadToEndAsync();
+                    RhinoApp.WriteLine($"[Tauri] {message}");
+                }
+                response.StatusCode = 200;
+            }
             else
             {
                 // Unknown endpoint

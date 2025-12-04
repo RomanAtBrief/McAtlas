@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
+using Rhino.Display;
 
 // Namespace
 namespace rhino_plugin
@@ -23,17 +24,17 @@ namespace rhino_plugin
         public void Start()
         {
             if (_isRunning) return;
-            
+
             try
             {
                 _listener = new HttpListener();
                 _listener.Prefixes.Add("http://localhost:8080/");
                 _listener.Start();
                 _isRunning = true;
-                
+
                 // Start listening in background
                 Task.Run(() => Listen());
-                
+
                 RhinoApp.WriteLine("McAtlas server started on http://localhost:8080");
             }
             catch (Exception ex)
@@ -67,12 +68,12 @@ namespace rhino_plugin
         {
             var request = context.Request;
             var response = context.Response;
-            
+
             // Enable CORS (allow Tauri to connect)
             response.AddHeader("Access-Control-Allow-Origin", "*");
             response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
             response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
-            
+
             // Handle preflight OPTIONS request
             if (request.HttpMethod == "OPTIONS")
             {
@@ -80,18 +81,18 @@ namespace rhino_plugin
                 response.Close();
                 return;
             }
-            
+
             // Handle export geometry request
             if (request.Url.AbsolutePath == "/export-geometry")
             {
                 string json = GetGeometryJson();
-                
+
                 byte[] buffer = Encoding.UTF8.GetBytes(json);
                 response.ContentType = "application/json";
                 response.ContentLength64 = buffer.Length;
                 response.StatusCode = 200;
                 await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-                
+
                 RhinoApp.WriteLine("Sent geometry to Tauri app");
             }
             // Handle log messages from Tauri
@@ -109,7 +110,7 @@ namespace rhino_plugin
                 // Unknown endpoint
                 response.StatusCode = 404;
             }
-            
+
             response.Close();
         }
 
@@ -129,6 +130,32 @@ namespace rhino_plugin
             return result;
         }
 
+        // Get or create default light gray material
+        private int GetOrCreateDefaultMaterial(RhinoDoc doc)
+        {
+            // Check if default material already exists
+            var materialName = "McAtlas_Default_Gray";
+
+            for (int i = 0; i < doc.Materials.Count; i++)
+            {
+                if (doc.Materials[i].Name == materialName)
+                    return i;
+            }
+
+            // Create new simple material (not PBR to avoid compatibility issues)
+            var material = new Material();
+            material.Name = materialName;
+
+            // Light gray color
+            material.DiffuseColor = System.Drawing.Color.FromArgb(220, 220, 220);
+            material.SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255);
+            material.Shine = 0.5;
+
+            // Add to document
+            int index = doc.Materials.Add(material);
+            return index;
+        }
+
         // Export cesium_massing layer to GLB on disk (UI thread) and return JSON
         private string GetGeometryJsonInternal()
         {
@@ -144,6 +171,9 @@ namespace rhino_plugin
             if (objs == null || objs.Length == 0)
                 return @"{""error"":""No objects on 'cesium_massing'""}";
 
+            // Get or create default material
+            int defaultMatIndex = GetOrCreateDefaultMaterial(doc);
+
             // Export directory: Documents/McAtlas
             var exportDir = Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
@@ -155,9 +185,17 @@ namespace rhino_plugin
             // Deselect all
             doc.Objects.UnselectAll();
 
-            // Select objects on cesium_massing layer
+            // Assign default material to objects without materials, then select
             foreach (var obj in objs)
             {
+                // If object has no material (using layer material), assign default
+                if (obj.Attributes.MaterialIndex == -1 || obj.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromLayer)
+                {
+                    obj.Attributes.MaterialIndex = defaultMatIndex;
+                    obj.Attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
+                    obj.CommitChanges();
+                }
+
                 obj.Select(true);
             }
 
@@ -172,7 +210,7 @@ namespace rhino_plugin
             if (!ok)
                 return @"{""error"":""Export command failed""}";
 
-            // Hard-coded position for prototype (Manhattan)
+            // Hard-coded position for prototype (Freedom Tower)
             const double lat = 40.7063;
             const double lon = -74.0037;
             const double height = 0.0;
@@ -195,11 +233,11 @@ namespace rhino_plugin
         public void Stop()
         {
             if (!_isRunning) return;
-            
+
             _isRunning = false;
             _listener?.Stop();
             _listener?.Close();
-            
+
             RhinoApp.WriteLine("McAtlas server stopped");
         }
     }

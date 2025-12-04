@@ -147,9 +147,9 @@ namespace rhino_plugin
             material.Name = materialName;
 
             // Light gray color
-            material.DiffuseColor = System.Drawing.Color.FromArgb(220, 220, 220);
+            material.DiffuseColor = System.Drawing.Color.FromArgb(245, 245, 245);
             material.SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255);
-            material.Shine = 0.5;
+            material.Shine = 0.8;
 
             // Add to document
             int index = doc.Materials.Add(material);

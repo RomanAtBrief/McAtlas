@@ -27,6 +27,18 @@ async function initCesiumViewer(conteinerId) {
     // Enable rendering the sky
     viewer.scene.skyAtmosphere.show = true;
 
+    // Enable ambient occlusion (from Cesium example)
+    // TODO: Find better settings for big scale buildings
+    if (Cesium.PostProcessStageLibrary.isAmbientOcclusionSupported(viewer.scene)) {
+        const ambientOcclusion = viewer.scene.postProcessStages.ambientOcclusion;
+        ambientOcclusion.enabled = true;
+        ambientOcclusion.uniforms.ambientOcclusionOnly = false;
+        ambientOcclusion.uniforms.intensity = 3.0;
+        ambientOcclusion.uniforms.bias = 0.1;
+        ambientOcclusion.uniforms.lengthCap = 0.26;
+        ambientOcclusion.uniforms.stepSize = 1.0;
+    }
+
     // Add Google Photorealistic 3D Tiles
     try {
         const tileset = await Cesium.createGooglePhotorealistic3DTileset({

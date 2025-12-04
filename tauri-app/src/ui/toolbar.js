@@ -5,11 +5,11 @@ import { logToRhino } from "../communication/rhino-logger.js";
 
 function initToolbar(viewer) {
   // Side panel button
-  document.getElementById("btnSide").addEventListener("click", toggleSidePanel);
+  document.getElementById("btnSettings").addEventListener("click", toggleSidePanel);
   
   // Export button - fetch from Rhino and display
-  document.getElementById("btnExport").addEventListener("click", async () => {
-    await logToRhino("TOOLBAR: Export button clicked!");
+  document.getElementById("btnSync").addEventListener("click", async () => {
+    await logToRhino("TOOLBAR: Sync/Export button clicked!");
     
     const data = await fetchGeometryFromRhino();
     

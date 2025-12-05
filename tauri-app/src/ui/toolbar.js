@@ -2,6 +2,7 @@ import { toggleSidePanel } from "./sidePanel.js";
 import { fetchGeometryFromRhino } from "../communication/rhino-bridge.js";
 import { addModelFromRhino, flyToCurrentModel } from "../world/cesium-geometry.js";
 import { logToRhino } from "../communication/rhino-logger.js";
+import { toggleViewMode } from "../world/view-mode.js";
 
 function initToolbar(viewer) {
   // Settings panel button
@@ -20,6 +21,14 @@ function initToolbar(viewer) {
   // Target button - fly back to model
   document.getElementById("btnTarget").addEventListener("click", async () => {
     await flyToCurrentModel(viewer);
+  });
+
+  // 2D/3D toggle button
+  const btnToggle = document.getElementById("btnToggleView");
+  btnToggle.addEventListener("click", () => {
+    const newMode = toggleViewMode();
+    // Button shows opposite mode (what you'll switch TO)
+    btnToggle.querySelector("span").textContent = newMode === '3D' ? '2D' : '3D';
   });
 
   // Search input - geocode and fly to location

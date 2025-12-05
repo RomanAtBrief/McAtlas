@@ -1,13 +1,14 @@
 // Cesium ion token
 const CESIUM_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1NzY1NjEyMy02ZDQ1LTRjMDQtOWZjNC04MDBjY2Q5ZjQ1NDQiLCJpZCI6MzY1MDQwLCJpYXQiOjE3NjQ0MjE3ODV9.qm9PTk2gyKewNkbWkzYsk_Sdf-gVYLJ0T0aX25jcH5M';
 
-async function initCesiumViewer(conteinerId) {
+async function initCesiumViewer(containerId) {
 
     // Set Cesium ion token
     Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
 
     // Create Cesium viewer
-    const viewer = new Cesium.Viewer("cesiumContainer", {
+    // globe: false is REQUIRED for Google Photorealistic 3D Tiles
+    const viewer = new Cesium.Viewer(containerId, {
         timeline: false,
         animation: false,
         sceneModePicker: false,
@@ -15,7 +16,6 @@ async function initCesiumViewer(conteinerId) {
         homeButton: false,
         navigationHelpButton: false,
         geocoder: false,
-        //geocoder: Cesium.IonGeocodeProviderType.GOOGLE,
         // The globe does not need to be displayed,
         // since the Photorealistic 3D Tiles include terrain
         globe: false,
@@ -40,9 +40,9 @@ async function initCesiumViewer(conteinerId) {
     }
 
     // Add Google Photorealistic 3D Tiles
+    let tileset = null;
     try {
-        const tileset = await Cesium.createGooglePhotorealistic3DTileset({
-            // Only the Google Geocoder can be used with Google Photorealistic 3D Tiles.  Set the `geocode` property of the viewer constructor options to IonGeocodeProviderType.GOOGLE.
+        tileset = await Cesium.createGooglePhotorealistic3DTileset({
             onlyUsingWithGoogleGeocoder: true,
         });
         viewer.scene.primitives.add(tileset);
@@ -61,7 +61,8 @@ async function initCesiumViewer(conteinerId) {
         }
     });
 
-    return viewer;
+    // Return both viewer and tileset for view-mode manager
+    return { viewer, tileset };
 }
 
 export { initCesiumViewer }

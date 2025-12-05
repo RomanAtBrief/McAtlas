@@ -51,7 +51,7 @@ async function initCesiumViewer(conteinerId) {
           ${error}`);
     }
 
-    // Fly to Edinburgh
+    // Fly to New York
     viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(-73.9986, 40.6976, 800),
         orientation: {

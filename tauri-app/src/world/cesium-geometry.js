@@ -48,7 +48,7 @@ async function addModelFromRhino(viewer, data) {
 
     await logToRhino("Step 6: Creating model entity...");
 
-    // Add model as entity (like the rectangle example)
+    // Add model as entity
     const modelEntity = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(
         position.lon,
@@ -64,7 +64,7 @@ async function addModelFromRhino(viewer, data) {
     
     await logToRhino("Step 7: Model entity created");
 
-    // Fly to the model entity (just like the rectangle example)
+    // Fly to the model
     viewer.flyTo(modelEntity);
     
     await logToRhino("Step 8: Flying to model");
@@ -77,4 +77,19 @@ async function addModelFromRhino(viewer, data) {
   }
 }
 
-export { addModelFromRhino };
+// Fly to current model (for Target button)
+async function flyToCurrentModel(viewer) {
+  await logToRhino("TARGET: Button clicked");
+  await logToRhino("TARGET: currentModel = " + (currentModel ? "exists" : "null"));
+  
+  if (currentModel) {
+    await logToRhino("TARGET: Flying to model...");
+    viewer.flyTo(currentModel);
+    await logToRhino("TARGET: Fly command executed");
+  } else {
+    await logToRhino("TARGET: No model loaded!");
+    alert("No model loaded yet. Click Sync first!");
+  }
+}
+
+export { addModelFromRhino, flyToCurrentModel };

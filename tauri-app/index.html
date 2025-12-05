@@ -34,26 +34,41 @@
         <!-- Main Panel -->
         <div class="flex-1 bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden">
           <div id="cesiumContainer" class="relative w-full h-full min-h-0">
-
             <!-- Top-right Utility Buttons -->
-            <div class="absolute top-3 right-3 flex flex-col gap-2 z-30">
-              <!-- Button: Search -->
-              <button id="btnSearch"
-                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
+            <div class="absolute top-3 right-3 flex flex-col items-end gap-2 z-30">
 
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
-                  class="size-6 text-black">
-                  <path fill-rule="evenodd"
-                    d="M10.5 3.75a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5ZM2.25 10.5a8.25 8.25 0 1 1 14.59 5.28l4.69 4.69a.75.75 0 1 1-1.06 1.06l-4.69-4.69A8.25 8.25 0 0 1 2.25 10.5Z"
-                    clip-rule="evenodd" />
-                </svg>
-              </button>
+              <!-- Search: circle that expands on focus -->
+              <div class="relative flex items-center justify-end">
+                <!-- OUTER: handles width transition only -->
+                <div class="relative h-10 w-10 cursor-pointer flex items-center
+                  transition-[width] duration-200 ease-out
+                  focus-within:w-64 focus-within:cursor-text">
+
+                  <!-- INNER: pill that scales like other buttons -->
+                  <div class="relative h-10 w-full rounded-full bg-white border border-gray-200 shadow-md
+                    flex items-center
+                    transform-gpu transition-transform duration-200 ease-out
+                    [&:not(:focus-within):hover]:scale-105
+                    [&:not(:focus-within):active]:scale-95">
+
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                      class="pointer-events-none absolute inset-y-0 left-0 my-auto h-5 w-10 text-black" fill="none"
+                      viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+
+                    <input id="searchInput" type="text" placeholder="Search..." class="h-full w-full pl-10 pr-3 bg-transparent outline-none
+                           text-sm text-black placeholder:text-gray-400 cursor-pointer
+                           focus:cursor-text" />
+                  </div>
+                </div>
+              </div>
 
               <!-- Button: 2D / 3D Toggle -->
               <button id="btnToggleView"
-                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
-
-                <span class="text-l font-semibold leading-none text-black">2D</span>
+                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-105 active:scale-95">
+                <span class="text-l font-semibold leading-none text-black select-none">2D</span>
               </button>
             </div>
           </div>
@@ -64,7 +79,7 @@
 
           <!-- Button: Settings Side Panel -->
           <button id="btnSettings"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -75,7 +90,7 @@
 
           <!-- Button: Sync Model from Rhino -->
           <button id="btnSync"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -86,7 +101,7 @@
 
           <!-- Button: Send Map to Rhino -->
           <button id="btnGetMap"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -99,7 +114,7 @@
 
           <!-- Button: Render -->
           <button id="btnRender"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white hover:bg-gray-100 active:bg-gray-100 active:scale-95 transition-all flex items-center justify-center">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"

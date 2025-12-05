@@ -47,7 +47,7 @@
                   <!-- INNER: pill that scales like other buttons -->
                   <div class="relative h-10 w-full rounded-full bg-white border border-gray-200 shadow-md
                     flex items-center
-                    transform-gpu transition-transform duration-200 ease-out
+                    transform-gpu will-change-transform transition-transform duration-200 ease-out
                     [&:not(:focus-within):hover]:scale-105
                     [&:not(:focus-within):active]:scale-95">
 
@@ -67,8 +67,19 @@
 
               <!-- Button: 2D / 3D Toggle -->
               <button id="btnToggleView"
-                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-105 active:scale-95">
+                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-105 active:scale-95">
                 <span class="text-l font-semibold leading-none text-black select-none">2D</span>
+              </button>
+
+              <!-- Button: Target -->
+              <button id="btnTorget"
+                class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-105 active:scale-95">
+
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                  stroke="currentColor" class="size-6 text-black pointer-events-none">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+                </svg>
               </button>
             </div>
           </div>
@@ -79,7 +90,7 @@
 
           <!-- Button: Settings Side Panel -->
           <button id="btnSettings"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -90,7 +101,7 @@
 
           <!-- Button: Sync Model from Rhino -->
           <button id="btnSync"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -101,7 +112,7 @@
 
           <!-- Button: Send Map to Rhino -->
           <button id="btnGetMap"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"
@@ -114,7 +125,7 @@
 
           <!-- Button: Render -->
           <button id="btnRender"
-            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
+            class="size-10 shrink-0 rounded-full shadow-md border border-gray-100 bg-white flex items-center justify-center transform-gpu will-change-transform transition-transform duration-200 ease-out hover:scale-110 active:scale-95">
 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-black">
               <path fill-rule="evenodd"

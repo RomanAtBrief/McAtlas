@@ -3,6 +3,7 @@ import { fetchGeometryFromRhino } from "../communication/rhino-bridge.js";
 import { addModelFromRhino, flyToCurrentModel } from "../world/cesium-geometry.js";
 import { logToRhino } from "../communication/rhino-logger.js";
 import { toggleViewMode } from "../world/view-mode.js";
+import { exportMapToRhino } from "../world/map-export.js";
 
 function initToolbar(viewer) {
   // Settings panel button
@@ -21,6 +22,12 @@ function initToolbar(viewer) {
   // Target button - fly back to model
   document.getElementById("btnTarget").addEventListener("click", async () => {
     await flyToCurrentModel(viewer);
+  });
+
+  // Send Map to Rhino button
+  document.getElementById("btnGetMap").addEventListener("click", async () => {
+    await logToRhino("TOOLBAR: Send Map to Rhino clicked!");
+    await exportMapToRhino(viewer);
   });
 
   // 2D/3D toggle button

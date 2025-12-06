@@ -103,13 +103,11 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
 async function fetchAndStitchTiles(viewer, tileBounds) {
   const { startX, startY, endX, endY, zoom, tilesX, tilesY, pixelWidth, pixelHeight } = tileBounds;
   
-  // Create output canvas
   const canvas = document.createElement('canvas');
   canvas.width = pixelWidth;
   canvas.height = pixelHeight;
   const ctx = canvas.getContext('2d');
   
-  // Get the imagery provider from the globe
   const globe = viewer.scene.globe;
   if (!globe || !globe.imageryLayers || globe.imageryLayers.length === 0) {
     throw new Error('No imagery layers available');
@@ -123,25 +121,19 @@ async function fetchAndStitchTiles(viewer, tileBounds) {
   let fetchedCount = 0;
   const totalTiles = tileBounds.totalTiles;
   
-  // Fetch all tiles
   for (let y = startY; y <= endY; y++) {
     for (let x = startX; x <= endX; x++) {
       try {
-        // Request tile from imagery provider
         const image = await imageryProvider.requestImage(x, y, zoom);
         
         if (image) {
-          // Calculate position on canvas
           const canvasX = (x - startX) * TILE_SIZE;
           const canvasY = (y - startY) * TILE_SIZE;
-          
-          // Draw tile to canvas
           ctx.drawImage(image, canvasX, canvasY, TILE_SIZE, TILE_SIZE);
         }
         
         fetchedCount++;
         
-        // Log progress every 10%
         if (fetchedCount % Math.ceil(totalTiles / 10) === 0) {
           const pct = Math.round(fetchedCount / totalTiles * 100);
           await logToRhino(`Progress: ${pct}% (${fetchedCount}/${totalTiles} tiles)`);
@@ -182,6 +174,31 @@ async function setEarthAnchorInRhino(lat, lon) {
   }
 }
 
+// Send map image to Rhino
+async function sendMapImageToRhino(base64Image, sizeMeters, pixelWidth, pixelHeight) {
+  try {
+    const response = await fetch('http://localhost:8080/import-map-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64: base64Image,
+        sizeMeters: sizeMeters,
+        pixelWidth: pixelWidth,
+        pixelHeight: pixelHeight
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to send map image');
+    }
+
+    return await response.json();
+  } catch (error) {
+    await logToRhino(`ERROR sending map image: ${error.message}`);
+    return { error: error.message };
+  }
+}
+
 // Main export function
 async function exportMapToRhino(viewer) {
   await logToRhino("=== MAP EXPORT START ===");
@@ -216,23 +233,35 @@ async function exportMapToRhino(viewer) {
   await logToRhino(`Actual size: ${tileBounds.actualSizeMeters.toFixed(0)}m x ${tileBounds.actualSizeMeters.toFixed(0)}m`);
 
   // Step 4: Fetch & stitch tiles
+  let canvas;
   try {
-    const canvas = await fetchAndStitchTiles(viewer, tileBounds);
+    canvas = await fetchAndStitchTiles(viewer, tileBounds);
     await logToRhino(`Stitched image: ${canvas.width} x ${canvas.height} pixels`);
-    
-    // Convert to base64 JPEG
-    const base64Image = canvasToBase64(canvas);
-    await logToRhino(`Image encoded: ${Math.round(base64Image.length / 1024)} KB`);
-    
-    // TODO Step 5: Send image to Rhino
-    await logToRhino("Image ready for Rhino (Step 5 TODO)");
-    
   } catch (error) {
     await logToRhino(`ERROR fetching tiles: ${error.message}`);
     return null;
   }
 
-  await logToRhino("=== MAP EXPORT END ===");
+  // Convert to base64 JPEG
+  const base64Image = canvasToBase64(canvas);
+  await logToRhino(`Image encoded: ${Math.round(base64Image.length / 1024)} KB`);
+
+  // Step 5: Send image to Rhino
+  await logToRhino("Sending image to Rhino...");
+  const importResult = await sendMapImageToRhino(
+    base64Image,
+    tileBounds.actualSizeMeters,
+    tileBounds.pixelWidth,
+    tileBounds.pixelHeight
+  );
+
+  if (importResult.error) {
+    await logToRhino(`ERROR: ${importResult.error}`);
+    return null;
+  }
+  await logToRhino(`Image placed in Rhino: ${importResult.imagePath}`);
+
+  await logToRhino("=== MAP EXPORT COMPLETE ===");
 
   return { center, tileBounds };
 }

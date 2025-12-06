@@ -55,7 +55,7 @@ namespace rhino_plugin
                 }
                 catch (Exception ex)
                 {
-                    if (_isRunning) // Only log if we didn't intentionally stop
+                    if (_isRunning)
                     {
                         RhinoApp.WriteLine($"Server error: {ex.Message}");
                     }
@@ -120,6 +120,21 @@ namespace rhino_plugin
                     await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
                 }
             }
+            // Handle import map image request
+            else if (request.Url.AbsolutePath == "/import-map-image" && request.HttpMethod == "POST")
+            {
+                using (var reader = new StreamReader(request.InputStream))
+                {
+                    string json = await reader.ReadToEndAsync();
+                    string result = ImportMapImage(json);
+
+                    byte[] buffer = Encoding.UTF8.GetBytes(result);
+                    response.ContentType = "application/json";
+                    response.ContentLength64 = buffer.Length;
+                    response.StatusCode = 200;
+                    await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                }
+            }
             else
             {
                 // Unknown endpoint
@@ -148,7 +163,6 @@ namespace rhino_plugin
         // Get or create default light gray material
         private int GetOrCreateDefaultMaterial(RhinoDoc doc)
         {
-            // Check if default material already exists
             var materialName = "McAtlas_Default_Gray";
 
             for (int i = 0; i < doc.Materials.Count; i++)
@@ -157,16 +171,12 @@ namespace rhino_plugin
                     return i;
             }
 
-            // Create new simple material (not PBR to avoid compatibility issues)
             var material = new Material();
             material.Name = materialName;
-
-            // Light gray color
             material.DiffuseColor = System.Drawing.Color.FromArgb(245, 245, 245);
             material.SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255);
             material.Shine = 0.8;
 
-            // Add to document
             int index = doc.Materials.Add(material);
             return index;
         }
@@ -186,10 +196,8 @@ namespace rhino_plugin
             if (objs == null || objs.Length == 0)
                 return @"{""error"":""No objects on 'cesium_massing'""}";
 
-            // Get or create default material
             int defaultMatIndex = GetOrCreateDefaultMaterial(doc);
 
-            // Export directory: Documents/McAtlas
             var exportDir = Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
                 "McAtlas");
@@ -197,13 +205,10 @@ namespace rhino_plugin
 
             var glbPath = Path.Combine(exportDir, "mcatlas_massing.glb");
 
-            // Deselect all
             doc.Objects.UnselectAll();
 
-            // Assign default material to objects without materials, then select
             foreach (var obj in objs)
             {
-                // If object has no material (using layer material), assign default
                 if (obj.Attributes.MaterialIndex == -1 || obj.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromLayer)
                 {
                     obj.Attributes.MaterialIndex = defaultMatIndex;
@@ -214,23 +219,18 @@ namespace rhino_plugin
                 obj.Select(true);
             }
 
-            // Export selected objects to glTF/GLB using Rhino's command-line exporter
-            // .glb extension forces the glTF exporter. Extra _Enter for default options.
             var exportCmd = $"_-Export \"{glbPath}\" _Enter _Enter";
             bool ok = RhinoApp.RunScript(exportCmd, false);
 
-            // Deselect all
             doc.Objects.UnselectAll();
 
             if (!ok)
                 return @"{""error"":""Export command failed""}";
 
-            // Hard-coded position for prototype (Freedom Tower)
             const double lat = 40.7063;
             const double lon = -74.0037;
             const double height = 0.0;
 
-            // Build JSON with escaped path
             var safePath = glbPath.Replace("\\", "\\\\");
             var sb = new StringBuilder();
             sb.Append("{");
@@ -265,11 +265,8 @@ namespace rhino_plugin
                 if (doc == null)
                     return @"{""error"":""No active Rhino document""}";
 
-                // Parse JSON manually (simple parsing for lat/lon)
-                // Expected format: {"lat": 40.123, "lon": -74.456}
                 double lat = 0, lon = 0;
 
-                // Extract lat
                 int latIndex = json.IndexOf("\"lat\"");
                 if (latIndex >= 0)
                 {
@@ -281,7 +278,6 @@ namespace rhino_plugin
                         System.Globalization.CultureInfo.InvariantCulture, out lat);
                 }
 
-                // Extract lon
                 int lonIndex = json.IndexOf("\"lon\"");
                 if (lonIndex >= 0)
                 {
@@ -295,20 +291,15 @@ namespace rhino_plugin
 
                 RhinoApp.WriteLine($"[McAtlas] Setting EarthAnchorPoint: lat={lat}, lon={lon}");
 
-                // Get EarthAnchorPoint
                 var anchor = doc.EarthAnchorPoint;
 
-                // Set the anchor point
-                // EarthAnchorPoint maps a model point to a geographic location
-                // We want origin (0,0,0) to map to our lat/lon
                 anchor.EarthBasepointLatitude = lat;
                 anchor.EarthBasepointLongitude = lon;
                 anchor.EarthBasepointElevation = 0;
                 anchor.ModelBasePoint = Point3d.Origin;
-                anchor.ModelNorth = new Vector3d(0, 1, 0); // Y-axis is North
-                anchor.ModelEast = new Vector3d(1, 0, 0);  // X-axis is East
+                anchor.ModelNorth = new Vector3d(0, 1, 0);
+                anchor.ModelEast = new Vector3d(1, 0, 0);
 
-                // Apply to document
                 doc.EarthAnchorPoint = anchor;
 
                 RhinoApp.WriteLine($"[McAtlas] EarthAnchorPoint set successfully!");
@@ -321,6 +312,133 @@ namespace rhino_plugin
                 RhinoApp.WriteLine($"[McAtlas] Error setting EarthAnchorPoint: {ex.Message}");
                 return $@"{{""error"":""{ex.Message}""}}";
             }
+        }
+
+        // Import map image from Tauri
+        private string ImportMapImage(string json)
+        {
+            string result = null;
+
+            RhinoApp.InvokeOnUiThread((Action)(() =>
+            {
+                result = ImportMapImageInternal(json);
+            }));
+
+            return result ?? @"{""error"":""Failed to import map image""}";
+        }
+
+        private string ImportMapImageInternal(string json)
+        {
+            try
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc == null)
+                    return @"{""error"":""No active Rhino document""}";
+
+                string imageBase64 = ExtractJsonString(json, "imageBase64");
+                double sizeMeters = ExtractJsonDouble(json, "sizeMeters");
+                int pixelWidth = (int)ExtractJsonDouble(json, "pixelWidth");
+                int pixelHeight = (int)ExtractJsonDouble(json, "pixelHeight");
+
+                if (string.IsNullOrEmpty(imageBase64))
+                    return @"{""error"":""No image data received""}";
+
+                RhinoApp.WriteLine($"[McAtlas] Receiving map image: {pixelWidth}x{pixelHeight}, {sizeMeters:F0}m");
+
+                var exportDir = Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
+                    "McAtlas");
+                Directory.CreateDirectory(exportDir);
+
+                var imagePath = Path.Combine(exportDir, "mcatlas_map.jpg");
+
+                byte[] imageBytes = Convert.FromBase64String(imageBase64);
+                File.WriteAllBytes(imagePath, imageBytes);
+
+                RhinoApp.WriteLine($"[McAtlas] Image saved: {imagePath}");
+
+                double halfSize = sizeMeters / 2.0;
+
+                var plane = Plane.WorldXY;
+
+                var pictureFrame = doc.Objects.AddPictureFrame(
+                    plane,
+                    imagePath,
+                    false,
+                    sizeMeters,
+                    sizeMeters,
+                    false,
+                    false
+                );
+
+                if (pictureFrame == Guid.Empty)
+                    return @"{""error"":""Failed to create PictureFrame""}";
+
+                var xform = Transform.Translation(-halfSize, -halfSize, 0);
+                doc.Objects.Transform(pictureFrame, xform, true);
+
+                var layerName = "mcatlas_map";
+                var layer = doc.Layers.FindName(layerName);
+                if (layer == null)
+                {
+                    var newLayer = new Layer();
+                    newLayer.Name = layerName;
+                    newLayer.Color = System.Drawing.Color.Gray;
+                    doc.Layers.Add(newLayer);
+                    layer = doc.Layers.FindName(layerName);
+                }
+
+                var obj = doc.Objects.FindId(pictureFrame);
+                if (obj != null)
+                {
+                    obj.Attributes.LayerIndex = layer.Index;
+                    obj.CommitChanges();
+                }
+
+                doc.Views.Redraw();
+
+                RhinoApp.WriteLine($"[McAtlas] PictureFrame created: {sizeMeters:F0}m x {sizeMeters:F0}m centered at origin");
+
+                var safePath = imagePath.Replace("\\", "\\\\");
+                return $@"{{""success"":true,""imagePath"":""{safePath}""}}";
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"[McAtlas] Error importing map image: {ex.Message}");
+                return $@"{{""error"":""{ex.Message}""}}";
+            }
+        }
+
+        // Helper: Extract string value from JSON
+        private string ExtractJsonString(string json, string key)
+        {
+            var searchKey = $"\"{key}\":\"";
+            int startIndex = json.IndexOf(searchKey);
+            if (startIndex < 0) return null;
+
+            startIndex += searchKey.Length;
+            int endIndex = json.IndexOf("\"", startIndex);
+            if (endIndex < 0) return null;
+
+            return json.Substring(startIndex, endIndex - startIndex);
+        }
+
+        // Helper: Extract double value from JSON
+        private double ExtractJsonDouble(string json, string key)
+        {
+            var searchKey = $"\"{key}\":";
+            int startIndex = json.IndexOf(searchKey);
+            if (startIndex < 0) return 0;
+
+            startIndex += searchKey.Length;
+            int endIndex = json.IndexOfAny(new char[] { ',', '}' }, startIndex);
+            if (endIndex < 0) return 0;
+
+            string valueStr = json.Substring(startIndex, endIndex - startIndex).Trim().Trim('"');
+            double.TryParse(valueStr, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double value);
+
+            return value;
         }
 
         // Stop the HTTP server

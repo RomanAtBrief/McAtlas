@@ -9,13 +9,11 @@ const ZOOM_LEVEL = 18;           // Good balance: ~0.6m/pixel
 
 // Get the center coordinates of the current view
 function getViewCenter(viewer) {
-  // Get screen center
   const windowCenter = new Cesium.Cartesian2(
     viewer.canvas.clientWidth / 2,
     viewer.canvas.clientHeight / 2
   );
 
-  // Pick position on globe
   const ray = viewer.camera.getPickRay(windowCenter);
   const globe = viewer.scene.globe;
 
@@ -31,7 +29,6 @@ function getViewCenter(viewer) {
     }
   }
 
-  // Fallback: use camera position
   const cartographic = viewer.camera.positionCartographic;
   return {
     lon: Cesium.Math.toDegrees(cartographic.longitude),
@@ -69,17 +66,14 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
   const pixelsNeeded = sizeMeters / mpp;
   const tilesNeeded = Math.ceil(pixelsNeeded / TILE_SIZE);
   
-  // Get center tile
   const centerTile = latLonToTile(centerLat, centerLon, zoom);
   
-  // Calculate tile range (centered on center tile)
   const halfTiles = Math.floor(tilesNeeded / 2);
   const startX = centerTile.x - halfTiles;
   const startY = centerTile.y - halfTiles;
   const endX = centerTile.x + halfTiles;
   const endY = centerTile.y + halfTiles;
   
-  // Calculate actual bounds in lat/lon
   const topLeft = tileToLatLon(startX, startY, zoom);
   const bottomRight = tileToLatLon(endX + 1, endY + 1, zoom);
   
@@ -105,6 +99,69 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
   };
 }
 
+// Fetch and stitch tiles into a single canvas
+async function fetchAndStitchTiles(viewer, tileBounds) {
+  const { startX, startY, endX, endY, zoom, tilesX, tilesY, pixelWidth, pixelHeight } = tileBounds;
+  
+  // Create output canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
+  const ctx = canvas.getContext('2d');
+  
+  // Get the imagery provider from the globe
+  const globe = viewer.scene.globe;
+  if (!globe || !globe.imageryLayers || globe.imageryLayers.length === 0) {
+    throw new Error('No imagery layers available');
+  }
+  
+  const imageryLayer = globe.imageryLayers.get(0);
+  const imageryProvider = imageryLayer.imageryProvider;
+  
+  await logToRhino(`Fetching ${tileBounds.totalTiles} tiles...`);
+  
+  let fetchedCount = 0;
+  const totalTiles = tileBounds.totalTiles;
+  
+  // Fetch all tiles
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      try {
+        // Request tile from imagery provider
+        const image = await imageryProvider.requestImage(x, y, zoom);
+        
+        if (image) {
+          // Calculate position on canvas
+          const canvasX = (x - startX) * TILE_SIZE;
+          const canvasY = (y - startY) * TILE_SIZE;
+          
+          // Draw tile to canvas
+          ctx.drawImage(image, canvasX, canvasY, TILE_SIZE, TILE_SIZE);
+        }
+        
+        fetchedCount++;
+        
+        // Log progress every 10%
+        if (fetchedCount % Math.ceil(totalTiles / 10) === 0) {
+          const pct = Math.round(fetchedCount / totalTiles * 100);
+          await logToRhino(`Progress: ${pct}% (${fetchedCount}/${totalTiles} tiles)`);
+        }
+      } catch (error) {
+        await logToRhino(`Warning: Failed to fetch tile (${x}, ${y}): ${error.message}`);
+      }
+    }
+  }
+  
+  await logToRhino(`Fetched ${fetchedCount}/${totalTiles} tiles`);
+  
+  return canvas;
+}
+
+// Convert canvas to base64 JPEG
+function canvasToBase64(canvas, quality = 0.9) {
+  return canvas.toDataURL('image/jpeg', quality).split(',')[1];
+}
+
 // Send earth anchor coordinates to Rhino
 async function setEarthAnchorInRhino(lat, lon) {
   try {
@@ -118,8 +175,7 @@ async function setEarthAnchorInRhino(lat, lon) {
       throw new Error('Failed to set earth anchor');
     }
 
-    const result = await response.json();
-    return result;
+    return await response.json();
   } catch (error) {
     await logToRhino(`ERROR setting earth anchor: ${error.message}`);
     return { error: error.message };
@@ -158,10 +214,23 @@ async function exportMapToRhino(viewer) {
   await logToRhino(`Tiles: ${tileBounds.tilesX} x ${tileBounds.tilesY} = ${tileBounds.totalTiles} total`);
   await logToRhino(`Output: ${tileBounds.pixelWidth} x ${tileBounds.pixelHeight} pixels`);
   await logToRhino(`Actual size: ${tileBounds.actualSizeMeters.toFixed(0)}m x ${tileBounds.actualSizeMeters.toFixed(0)}m`);
-  await logToRhino(`Resolution: ${tileBounds.metersPerPixel.toFixed(2)} m/pixel`);
 
-  // TODO Step 4: Fetch & stitch tiles
-  // TODO Step 5: Send image to Rhino
+  // Step 4: Fetch & stitch tiles
+  try {
+    const canvas = await fetchAndStitchTiles(viewer, tileBounds);
+    await logToRhino(`Stitched image: ${canvas.width} x ${canvas.height} pixels`);
+    
+    // Convert to base64 JPEG
+    const base64Image = canvasToBase64(canvas);
+    await logToRhino(`Image encoded: ${Math.round(base64Image.length / 1024)} KB`);
+    
+    // TODO Step 5: Send image to Rhino
+    await logToRhino("Image ready for Rhino (Step 5 TODO)");
+    
+  } catch (error) {
+    await logToRhino(`ERROR fetching tiles: ${error.message}`);
+    return null;
+  }
 
   await logToRhino("=== MAP EXPORT END ===");
 

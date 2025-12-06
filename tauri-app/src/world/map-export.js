@@ -2,6 +2,11 @@
 import { logToRhino } from "../communication/rhino-logger.js";
 import { getCurrentMode } from "./view-mode.js";
 
+// Configuration
+const EXPORT_SIZE_METERS = 2000; // 2km x 2km area
+const TILE_SIZE = 256;           // Google tiles are 256x256
+const ZOOM_LEVEL = 18;           // Good balance: ~0.6m/pixel
+
 // Get the center coordinates of the current view
 function getViewCenter(viewer) {
   // Get screen center
@@ -32,6 +37,71 @@ function getViewCenter(viewer) {
     lon: Cesium.Math.toDegrees(cartographic.longitude),
     lat: Cesium.Math.toDegrees(cartographic.latitude),
     height: cartographic.height
+  };
+}
+
+// Convert lat/lon to tile coordinates at a given zoom level
+function latLonToTile(lat, lon, zoom) {
+  const n = Math.pow(2, zoom);
+  const x = Math.floor((lon + 180) / 360 * n);
+  const latRad = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x, y };
+}
+
+// Convert tile coordinates to lat/lon (top-left corner of tile)
+function tileToLatLon(x, y, zoom) {
+  const n = Math.pow(2, zoom);
+  const lon = x / n * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
+  const lat = latRad * 180 / Math.PI;
+  return { lat, lon };
+}
+
+// Calculate meters per pixel at a given latitude and zoom
+function metersPerPixel(lat, zoom) {
+  return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+}
+
+// Calculate tile bounds for export area
+function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
+  const mpp = metersPerPixel(centerLat, zoom);
+  const pixelsNeeded = sizeMeters / mpp;
+  const tilesNeeded = Math.ceil(pixelsNeeded / TILE_SIZE);
+  
+  // Get center tile
+  const centerTile = latLonToTile(centerLat, centerLon, zoom);
+  
+  // Calculate tile range (centered on center tile)
+  const halfTiles = Math.floor(tilesNeeded / 2);
+  const startX = centerTile.x - halfTiles;
+  const startY = centerTile.y - halfTiles;
+  const endX = centerTile.x + halfTiles;
+  const endY = centerTile.y + halfTiles;
+  
+  // Calculate actual bounds in lat/lon
+  const topLeft = tileToLatLon(startX, startY, zoom);
+  const bottomRight = tileToLatLon(endX + 1, endY + 1, zoom);
+  
+  return {
+    zoom,
+    startX,
+    startY,
+    endX,
+    endY,
+    tilesX: endX - startX + 1,
+    tilesY: endY - startY + 1,
+    totalTiles: (endX - startX + 1) * (endY - startY + 1),
+    pixelWidth: (endX - startX + 1) * TILE_SIZE,
+    pixelHeight: (endY - startY + 1) * TILE_SIZE,
+    bounds: {
+      north: topLeft.lat,
+      south: bottomRight.lat,
+      west: topLeft.lon,
+      east: bottomRight.lon
+    },
+    metersPerPixel: mpp,
+    actualSizeMeters: (endX - startX + 1) * TILE_SIZE * mpp
   };
 }
 
@@ -81,13 +151,21 @@ async function exportMapToRhino(viewer) {
   }
   await logToRhino("EarthAnchorPoint set successfully!");
 
-  // TODO Step 3: Calculate tile bounds for 2km area
+  // Step 3: Calculate tile bounds for 2km area
+  await logToRhino(`Calculating tiles for ${EXPORT_SIZE_METERS}m area at zoom ${ZOOM_LEVEL}...`);
+  const tileBounds = calculateTileBounds(center.lat, center.lon, EXPORT_SIZE_METERS, ZOOM_LEVEL);
+  
+  await logToRhino(`Tiles: ${tileBounds.tilesX} x ${tileBounds.tilesY} = ${tileBounds.totalTiles} total`);
+  await logToRhino(`Output: ${tileBounds.pixelWidth} x ${tileBounds.pixelHeight} pixels`);
+  await logToRhino(`Actual size: ${tileBounds.actualSizeMeters.toFixed(0)}m x ${tileBounds.actualSizeMeters.toFixed(0)}m`);
+  await logToRhino(`Resolution: ${tileBounds.metersPerPixel.toFixed(2)} m/pixel`);
+
   // TODO Step 4: Fetch & stitch tiles
   // TODO Step 5: Send image to Rhino
 
   await logToRhino("=== MAP EXPORT END ===");
 
-  return center;
+  return { center, tileBounds };
 }
 
 export { exportMapToRhino, getViewCenter };

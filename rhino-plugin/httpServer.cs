@@ -105,6 +105,21 @@ namespace rhino_plugin
                 }
                 response.StatusCode = 200;
             }
+            // Handle set earth anchor request
+            else if (request.Url.AbsolutePath == "/set-earth-anchor" && request.HttpMethod == "POST")
+            {
+                using (var reader = new StreamReader(request.InputStream))
+                {
+                    string json = await reader.ReadToEndAsync();
+                    string result = SetEarthAnchor(json);
+
+                    byte[] buffer = Encoding.UTF8.GetBytes(result);
+                    response.ContentType = "application/json";
+                    response.ContentLength64 = buffer.Length;
+                    response.StatusCode = 200;
+                    await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                }
+            }
             else
             {
                 // Unknown endpoint
@@ -227,6 +242,85 @@ namespace rhino_plugin
             sb.Append("}");
 
             return sb.ToString();
+        }
+
+        // Set EarthAnchorPoint from Tauri coordinates
+        private string SetEarthAnchor(string json)
+        {
+            string result = null;
+
+            RhinoApp.InvokeOnUiThread((Action)(() =>
+            {
+                result = SetEarthAnchorInternal(json);
+            }));
+
+            return result ?? @"{""error"":""Failed to set earth anchor""}";
+        }
+
+        private string SetEarthAnchorInternal(string json)
+        {
+            try
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc == null)
+                    return @"{""error"":""No active Rhino document""}";
+
+                // Parse JSON manually (simple parsing for lat/lon)
+                // Expected format: {"lat": 40.123, "lon": -74.456}
+                double lat = 0, lon = 0;
+
+                // Extract lat
+                int latIndex = json.IndexOf("\"lat\"");
+                if (latIndex >= 0)
+                {
+                    int colonIndex = json.IndexOf(":", latIndex);
+                    int commaIndex = json.IndexOf(",", colonIndex);
+                    if (commaIndex < 0) commaIndex = json.IndexOf("}", colonIndex);
+                    string latStr = json.Substring(colonIndex + 1, commaIndex - colonIndex - 1).Trim();
+                    double.TryParse(latStr, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out lat);
+                }
+
+                // Extract lon
+                int lonIndex = json.IndexOf("\"lon\"");
+                if (lonIndex >= 0)
+                {
+                    int colonIndex = json.IndexOf(":", lonIndex);
+                    int commaIndex = json.IndexOf(",", colonIndex);
+                    if (commaIndex < 0) commaIndex = json.IndexOf("}", colonIndex);
+                    string lonStr = json.Substring(colonIndex + 1, commaIndex - colonIndex - 1).Trim();
+                    double.TryParse(lonStr, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out lon);
+                }
+
+                RhinoApp.WriteLine($"[McAtlas] Setting EarthAnchorPoint: lat={lat}, lon={lon}");
+
+                // Get EarthAnchorPoint
+                var anchor = doc.EarthAnchorPoint;
+
+                // Set the anchor point
+                // EarthAnchorPoint maps a model point to a geographic location
+                // We want origin (0,0,0) to map to our lat/lon
+                anchor.EarthBasepointLatitude = lat;
+                anchor.EarthBasepointLongitude = lon;
+                anchor.EarthBasepointElevation = 0;
+                anchor.ModelBasePoint = Point3d.Origin;
+                anchor.ModelNorth = new Vector3d(0, 1, 0); // Y-axis is North
+                anchor.ModelEast = new Vector3d(1, 0, 0);  // X-axis is East
+
+                // Apply to document
+                doc.EarthAnchorPoint = anchor;
+
+                RhinoApp.WriteLine($"[McAtlas] EarthAnchorPoint set successfully!");
+                RhinoApp.WriteLine($"[McAtlas] Origin (0,0,0) = lat:{lat}, lon:{lon}");
+
+                return @"{""success"":true}";
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"[McAtlas] Error setting EarthAnchorPoint: {ex.Message}");
+                return $@"{{""error"":""{ex.Message}""}}";
+            }
         }
 
         // Stop the HTTP server

@@ -16,6 +16,8 @@ async function initCesiumViewer(containerId) {
         homeButton: false,
         navigationHelpButton: false,
         geocoder: false,
+        selectionIndicator: false,
+        infoBox: false,
         // The globe does not need to be displayed,
         // since the Photorealistic 3D Tiles include terrain
         globe: false,

@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 // Import RhinoCommon namespaces
 using Rhino;
@@ -196,8 +197,86 @@ namespace rhino_plugin
             if (objs == null || objs.Length == 0)
                 return @"{""error"":""No objects on 'cesium_massing'""}";
 
+            // Check if EarthAnchorPoint is set
+            var anchor = doc.EarthAnchorPoint;
+            if (!anchor.EarthLocationIsSet())
+                return @"{""error"":""EarthAnchorPoint not set. Please import a map first.""}";
+
+            // ============ DEBUG LOGGING ============
+            RhinoApp.WriteLine("[McAtlas] ========== COORDINATE DEBUG ==========");
+            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.Latitude: {anchor.EarthBasepointLatitude:F8}");
+            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.Longitude: {anchor.EarthBasepointLongitude:F8}");
+            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.ModelBasePoint: ({anchor.ModelBasePoint.X:F3}, {anchor.ModelBasePoint.Y:F3}, {anchor.ModelBasePoint.Z:F3})");
+            RhinoApp.WriteLine($"[McAtlas] Doc.ModelUnitSystem: {doc.ModelUnitSystem}");
+
+            // Calculate bounding box of all objects
+            BoundingBox bbox = BoundingBox.Empty;
+            foreach (var obj in objs)
+            {
+                bbox.Union(obj.Geometry.GetBoundingBox(true));
+            }
+
+            RhinoApp.WriteLine($"[McAtlas] BBox.Min: ({bbox.Min.X:F3}, {bbox.Min.Y:F3}, {bbox.Min.Z:F3})");
+            RhinoApp.WriteLine($"[McAtlas] BBox.Max: ({bbox.Max.X:F3}, {bbox.Max.Y:F3}, {bbox.Max.Z:F3})");
+
+            // Get center point at base (Z = bbox.Min.Z)
+            Point3d modelCenter = new Point3d(
+                (bbox.Min.X + bbox.Max.X) / 2.0,
+                (bbox.Min.Y + bbox.Max.Y) / 2.0,
+                bbox.Min.Z
+            );
+
+            RhinoApp.WriteLine($"[McAtlas] Model center in Rhino: ({modelCenter.X:F3}, {modelCenter.Y:F3}, {modelCenter.Z:F3})");
+
+            // Get transformation from model to earth coordinates
+            var modelToEarth = anchor.GetModelToEarthTransform(doc.ModelUnitSystem);
+
+            // Transform the center point to get lat/lon
+            Point3d earthPoint = modelCenter;
+            earthPoint.Transform(modelToEarth);
+
+            // NOTE: Transform returns X=longitude, Y=latitude, Z=elevation
+            double lat = earthPoint.Y;
+            double lon = earthPoint.X;
+            double height = bbox.Min.Z;
+
+            RhinoApp.WriteLine($"[McAtlas] Transform result: lat={lat:F8}, lon={lon:F8}");
+
+            // ============ COORDINATE VERIFICATION ============
+            RhinoApp.WriteLine($"[McAtlas] === COORDINATE VERIFICATION ===");
+            RhinoApp.WriteLine($"[McAtlas] Model offset from origin: X={modelCenter.X:F3}m, Y={modelCenter.Y:F3}m");
+
+            // Calculate what the lat/lon offset SHOULD be
+            // At this latitude, 1 degree lat ≈ 111,320m, 1 degree lon ≈ 111,320 * cos(lat)
+            double latRadians = anchor.EarthBasepointLatitude * Math.PI / 180.0;
+            double metersPerDegreeLat = 111320.0;
+            double metersPerDegreeLon = 111320.0 * Math.Cos(latRadians);
+
+            double expectedLatOffset = modelCenter.Y / metersPerDegreeLat;
+            double expectedLonOffset = modelCenter.X / metersPerDegreeLon;
+
+            double expectedLat = anchor.EarthBasepointLatitude + expectedLatOffset;
+            double expectedLon = anchor.EarthBasepointLongitude + expectedLonOffset;
+
+            RhinoApp.WriteLine($"[McAtlas] Meters per degree: lat={metersPerDegreeLat:F1}, lon={metersPerDegreeLon:F1}");
+            RhinoApp.WriteLine($"[McAtlas] Expected offset: dLat={expectedLatOffset:F8}, dLon={expectedLonOffset:F8}");
+            RhinoApp.WriteLine($"[McAtlas] Expected result: lat={expectedLat:F8}, lon={expectedLon:F8}");
+            RhinoApp.WriteLine($"[McAtlas] Transform result: lat={lat:F8}, lon={lon:F8}");
+            RhinoApp.WriteLine($"[McAtlas] Difference: dLat={lat - expectedLat:F8}, dLon={lon - expectedLon:F8}");
+
+            // Convert difference to meters
+            double latErrorMeters = (lat - expectedLat) * metersPerDegreeLat;
+            double lonErrorMeters = (lon - expectedLon) * metersPerDegreeLon;
+            RhinoApp.WriteLine($"[McAtlas] Error in meters: X={lonErrorMeters:F2}m, Y={latErrorMeters:F2}m");
+            RhinoApp.WriteLine($"[McAtlas] === END VERIFICATION ===");
+            // ==================================================
+
+            RhinoApp.WriteLine($"[McAtlas] Height (bbox.Min.Z): {height:F3}");
+
+            // Get or create default material
             int defaultMatIndex = GetOrCreateDefaultMaterial(doc);
 
+            // Export directory: Documents/McAtlas
             var exportDir = Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
                 "McAtlas");
@@ -205,32 +284,62 @@ namespace rhino_plugin
 
             var glbPath = Path.Combine(exportDir, "mcatlas_massing.glb");
 
-            doc.Objects.UnselectAll();
+            // ============ CREATE CENTERED COPIES FOR EXPORT ============
+            // We need to export geometry centered at origin so Cesium places it correctly
+            var moveToOrigin = Transform.Translation(-modelCenter.X, -modelCenter.Y, -bbox.Min.Z);
 
+            RhinoApp.WriteLine($"[McAtlas] Moving geometry to origin for export...");
+
+            var tempGuids = new List<Guid>();
             foreach (var obj in objs)
             {
-                if (obj.Attributes.MaterialIndex == -1 || obj.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromLayer)
+                // Duplicate geometry and transform to origin
+                var dupGeom = obj.Geometry.Duplicate();
+                dupGeom.Transform(moveToOrigin);
+
+                // Copy attributes and apply material
+                var attributes = obj.Attributes.Duplicate();
+                if (attributes.MaterialIndex == -1 || attributes.MaterialSource == ObjectMaterialSource.MaterialFromLayer)
                 {
-                    obj.Attributes.MaterialIndex = defaultMatIndex;
-                    obj.Attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
-                    obj.CommitChanges();
+                    attributes.MaterialIndex = defaultMatIndex;
+                    attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
                 }
 
-                obj.Select(true);
+                // Add temp object to doc
+                var guid = doc.Objects.Add(dupGeom, attributes);
+                tempGuids.Add(guid);
             }
 
+            RhinoApp.WriteLine($"[McAtlas] Created {tempGuids.Count} temp objects at origin");
+
+            // Deselect all, then select only temp objects
+            doc.Objects.UnselectAll();
+            foreach (var guid in tempGuids)
+            {
+                var tempObj = doc.Objects.FindId(guid);
+                if (tempObj != null)
+                    tempObj.Select(true);
+            }
+
+            // Export selected objects to glTF/GLB
             var exportCmd = $"_-Export \"{glbPath}\" _Enter _Enter";
             bool ok = RhinoApp.RunScript(exportCmd, false);
 
+            // Delete temp objects
+            foreach (var guid in tempGuids)
+            {
+                doc.Objects.Delete(guid, true);
+            }
+
             doc.Objects.UnselectAll();
+
+            RhinoApp.WriteLine($"[McAtlas] Temp objects deleted, export ok={ok}");
+            RhinoApp.WriteLine("[McAtlas] ========== END DEBUG ==========");
 
             if (!ok)
                 return @"{""error"":""Export command failed""}";
 
-            const double lat = 40.7063;
-            const double lon = -74.0037;
-            const double height = 0.0;
-
+            // Build JSON with calculated position
             var safePath = glbPath.Replace("\\", "\\\\");
             var sb = new StringBuilder();
             sb.Append("{");
@@ -289,7 +398,7 @@ namespace rhino_plugin
                         System.Globalization.CultureInfo.InvariantCulture, out lon);
                 }
 
-                RhinoApp.WriteLine($"[McAtlas] Setting EarthAnchorPoint: lat={lat}, lon={lon}");
+                RhinoApp.WriteLine($"[McAtlas] Setting EarthAnchorPoint: lat={lat:F8}, lon={lon:F8}");
 
                 var anchor = doc.EarthAnchorPoint;
 
@@ -303,7 +412,6 @@ namespace rhino_plugin
                 doc.EarthAnchorPoint = anchor;
 
                 RhinoApp.WriteLine($"[McAtlas] EarthAnchorPoint set successfully!");
-                RhinoApp.WriteLine($"[McAtlas] Origin (0,0,0) = lat:{lat}, lon:{lon}");
 
                 return @"{""success"":true}";
             }

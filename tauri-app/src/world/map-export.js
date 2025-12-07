@@ -66,16 +66,24 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
   const pixelsNeeded = sizeMeters / mpp;
   const tilesNeeded = Math.ceil(pixelsNeeded / TILE_SIZE);
   
+  // Make sure we have an odd number of tiles so center tile is truly centered
+  const tilesCount = tilesNeeded % 2 === 0 ? tilesNeeded + 1 : tilesNeeded;
+  
   const centerTile = latLonToTile(centerLat, centerLon, zoom);
   
-  const halfTiles = Math.floor(tilesNeeded / 2);
+  const halfTiles = Math.floor(tilesCount / 2);
   const startX = centerTile.x - halfTiles;
   const startY = centerTile.y - halfTiles;
   const endX = centerTile.x + halfTiles;
   const endY = centerTile.y + halfTiles;
   
+  // Calculate the ACTUAL bounds of the stitched image
   const topLeft = tileToLatLon(startX, startY, zoom);
   const bottomRight = tileToLatLon(endX + 1, endY + 1, zoom);
+  
+  // Calculate the ACTUAL center of the stitched image
+  const actualCenterLat = (topLeft.lat + bottomRight.lat) / 2;
+  const actualCenterLon = (topLeft.lon + bottomRight.lon) / 2;
   
   return {
     zoom,
@@ -83,6 +91,7 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
     startY,
     endX,
     endY,
+    centerTile,
     tilesX: endX - startX + 1,
     tilesY: endY - startY + 1,
     totalTiles: (endX - startX + 1) * (endY - startY + 1),
@@ -93,6 +102,11 @@ function calculateTileBounds(centerLat, centerLon, sizeMeters, zoom) {
       south: bottomRight.lat,
       west: topLeft.lon,
       east: bottomRight.lon
+    },
+    // The ACTUAL center of the stitched image
+    actualCenter: {
+      lat: actualCenterLat,
+      lon: actualCenterLon
     },
     metersPerPixel: mpp,
     actualSizeMeters: (endX - startX + 1) * TILE_SIZE * mpp
@@ -210,27 +224,43 @@ async function exportMapToRhino(viewer) {
     return null;
   }
 
-  // Step 1: Get center coordinates
-  const center = getViewCenter(viewer);
-  await logToRhino(`Center: lat=${center.lat.toFixed(6)}, lon=${center.lon.toFixed(6)}`);
+  // Step 1: Get center coordinates from camera
+  const viewCenter = getViewCenter(viewer);
+  await logToRhino(`Camera center: lat=${viewCenter.lat.toFixed(8)}, lon=${viewCenter.lon.toFixed(8)}`);
 
-  // Step 2: Set EarthAnchorPoint in Rhino
-  await logToRhino("Setting EarthAnchorPoint in Rhino...");
-  const anchorResult = await setEarthAnchorInRhino(center.lat, center.lon);
+  // Step 2: Calculate tile bounds for 2km area
+  await logToRhino(`Calculating tiles for ${EXPORT_SIZE_METERS}m area at zoom ${ZOOM_LEVEL}...`);
+  const tileBounds = calculateTileBounds(viewCenter.lat, viewCenter.lon, EXPORT_SIZE_METERS, ZOOM_LEVEL);
+  
+  await logToRhino(`Tiles: ${tileBounds.tilesX} x ${tileBounds.tilesY} = ${tileBounds.totalTiles} total`);
+  await logToRhino(`Output: ${tileBounds.pixelWidth} x ${tileBounds.pixelHeight} pixels`);
+  await logToRhino(`Actual size: ${tileBounds.actualSizeMeters.toFixed(0)}m x ${tileBounds.actualSizeMeters.toFixed(0)}m`);
+  
+  // === DEBUG: Show tile grid details ===
+  await logToRhino(`=== TILE GRID DEBUG ===`);
+  await logToRhino(`Center tile: (${tileBounds.centerTile.x}, ${tileBounds.centerTile.y})`);
+  await logToRhino(`Tile range X: ${tileBounds.startX} to ${tileBounds.endX}`);
+  await logToRhino(`Tile range Y: ${tileBounds.startY} to ${tileBounds.endY}`);
+  await logToRhino(`Bounds N/S: ${tileBounds.bounds.north.toFixed(8)} / ${tileBounds.bounds.south.toFixed(8)}`);
+  await logToRhino(`Bounds W/E: ${tileBounds.bounds.west.toFixed(8)} / ${tileBounds.bounds.east.toFixed(8)}`);
+  await logToRhino(`ACTUAL image center: lat=${tileBounds.actualCenter.lat.toFixed(8)}, lon=${tileBounds.actualCenter.lon.toFixed(8)}`);
+  
+  // Calculate offset between camera center and actual image center
+  const mpp = tileBounds.metersPerPixel;
+  const latOffset = (tileBounds.actualCenter.lat - viewCenter.lat) * 111320;
+  const lonOffset = (tileBounds.actualCenter.lon - viewCenter.lon) * 111320 * Math.cos(viewCenter.lat * Math.PI / 180);
+  await logToRhino(`Offset from camera to image center: X=${lonOffset.toFixed(2)}m, Y=${latOffset.toFixed(2)}m`);
+  await logToRhino(`=== END TILE DEBUG ===`);
+
+  // Step 3: Set EarthAnchorPoint in Rhino using ACTUAL image center (not camera center!)
+  await logToRhino("Setting EarthAnchorPoint in Rhino (using actual image center)...");
+  const anchorResult = await setEarthAnchorInRhino(tileBounds.actualCenter.lat, tileBounds.actualCenter.lon);
 
   if (anchorResult.error) {
     await logToRhino(`ERROR: ${anchorResult.error}`);
     return null;
   }
   await logToRhino("EarthAnchorPoint set successfully!");
-
-  // Step 3: Calculate tile bounds for 2km area
-  await logToRhino(`Calculating tiles for ${EXPORT_SIZE_METERS}m area at zoom ${ZOOM_LEVEL}...`);
-  const tileBounds = calculateTileBounds(center.lat, center.lon, EXPORT_SIZE_METERS, ZOOM_LEVEL);
-  
-  await logToRhino(`Tiles: ${tileBounds.tilesX} x ${tileBounds.tilesY} = ${tileBounds.totalTiles} total`);
-  await logToRhino(`Output: ${tileBounds.pixelWidth} x ${tileBounds.pixelHeight} pixels`);
-  await logToRhino(`Actual size: ${tileBounds.actualSizeMeters.toFixed(0)}m x ${tileBounds.actualSizeMeters.toFixed(0)}m`);
 
   // Step 4: Fetch & stitch tiles
   let canvas;
@@ -263,7 +293,7 @@ async function exportMapToRhino(viewer) {
 
   await logToRhino("=== MAP EXPORT COMPLETE ===");
 
-  return { center, tileBounds };
+  return { center: tileBounds.actualCenter, tileBounds };
 }
 
 export { exportMapToRhino, getViewCenter };

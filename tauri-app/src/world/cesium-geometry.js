@@ -3,7 +3,7 @@
 
 import { readFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { logToRhino } from "../communication/rhino-logger.js";
-import { getGlobe2D } from "../world/view-mode.js";
+import { getGlobe2D, getCurrentMode } from "../world/view-mode.js";
 
 // Store references to current entities
 let currentModel = null;
@@ -113,7 +113,20 @@ async function addModelFromRhino(viewer, tileset, data) {
     currentModel = modelEntity;
     
     await logToRhino("Model entity created successfully");
-    viewer.flyTo(modelEntity);
+    
+    // Fly to model - but respect current view mode
+    if (getCurrentMode() === '2D') {
+      // In 2D mode, pan/zoom to model but stay top-down
+      const boundingSphere = new Cesium.BoundingSphere(positionCartesian, 200); // 200m radius
+      viewer.camera.flyToBoundingSphere(boundingSphere, {
+        duration: 1.5,
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-90), 0) // Top-down
+      });
+    } else {
+      // In 3D mode, normal flyTo
+      viewer.flyTo(modelEntity);
+    }
+    
     await logToRhino("========== CESIUM SYNC COMPLETE ==========");
 
   } catch (error) {

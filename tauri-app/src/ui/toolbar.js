@@ -2,12 +2,33 @@ import { toggleSidePanel } from "./sidePanel.js";
 import { fetchGeometryFromRhino } from "../communication/rhino-bridge.js";
 import { addModelFromRhino, flyToCurrentModel } from "../world/cesium-geometry.js";
 import { logToRhino } from "../communication/rhino-logger.js";
-import { toggleViewMode } from "../world/view-mode.js";
+import { toggleViewMode, getCurrentMode } from "../world/view-mode.js";
 import { exportMapToRhino } from "../world/map-export.js";
 
-function initToolbar(viewer) {
+// Store tileset reference for clipping
+let _tileset = null;
+
+function initToolbar(viewer, tileset) {
+  // Store tileset for later use
+  _tileset = tileset;
+  
   // Settings panel button
   document.getElementById("btnSettings").addEventListener("click", toggleSidePanel);
+  
+  // 2D/3D Toggle button
+  const btnToggleView = document.getElementById("btnToggleView");
+  btnToggleView.addEventListener("click", async () => {
+    const newMode = toggleViewMode();
+    // Update button text to show what clicking will switch TO
+    btnToggleView.querySelector("span").textContent = newMode === '3D' ? '2D' : '3D';
+    await logToRhino(`VIEW: Switched to ${newMode} mode`);
+  });
+  
+  // Send Map to Rhino button
+  document.getElementById("btnGetMap").addEventListener("click", async () => {
+    await logToRhino("TOOLBAR: Send Map to Rhino clicked!");
+    await exportMapToRhino(viewer);
+  });
   
   // Sync button - fetch from Rhino and display
   document.getElementById("btnSync").addEventListener("click", async () => {
@@ -15,27 +36,14 @@ function initToolbar(viewer) {
     const data = await fetchGeometryFromRhino();
     await logToRhino("TOOLBAR: Got data from Rhino");
     if (data) {
-      await addModelFromRhino(viewer, data);
+      // Pass tileset for clipping polygon support
+      await addModelFromRhino(viewer, _tileset, data);
     }
   });
 
   // Target button - fly back to model
   document.getElementById("btnTarget").addEventListener("click", async () => {
     await flyToCurrentModel(viewer);
-  });
-
-  // Send Map to Rhino button
-  document.getElementById("btnGetMap").addEventListener("click", async () => {
-    await logToRhino("TOOLBAR: Send Map to Rhino clicked!");
-    await exportMapToRhino(viewer);
-  });
-
-  // 2D/3D toggle button
-  const btnToggle = document.getElementById("btnToggleView");
-  btnToggle.addEventListener("click", () => {
-    const newMode = toggleViewMode();
-    // Button shows opposite mode (what you'll switch TO)
-    btnToggle.querySelector("span").textContent = newMode === '3D' ? '2D' : '3D';
   });
 
   // Search input - geocode and fly to location

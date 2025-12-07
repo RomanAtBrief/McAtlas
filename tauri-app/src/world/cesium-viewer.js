@@ -1,4 +1,5 @@
-// Cesium ion token
+// Cesium viewer initialization with Google 3D Tiles
+
 const CESIUM_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1NzY1NjEyMy02ZDQ1LTRjMDQtOWZjNC04MDBjY2Q5ZjQ1NDQiLCJpZCI6MzY1MDQwLCJpYXQiOjE3NjQ0MjE3ODV9.qm9PTk2gyKewNkbWkzYsk_Sdf-gVYLJ0T0aX25jcH5M';
 
 async function initCesiumViewer(containerId) {
@@ -7,7 +8,7 @@ async function initCesiumViewer(containerId) {
     Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
 
     // Create Cesium viewer
-    // globe: false is REQUIRED for Google Photorealistic 3D Tiles
+    // globe: false - view-mode.js will create and manage the globe for 2D mode
     const viewer = new Cesium.Viewer(containerId, {
         timeline: false,
         animation: false,
@@ -18,8 +19,8 @@ async function initCesiumViewer(containerId) {
         geocoder: false,
         selectionIndicator: false,
         infoBox: false,
-        // The globe does not need to be displayed,
-        // since the Photorealistic 3D Tiles include terrain
+        // No globe initially - 3D tiles provide the terrain visually
+        // view-mode.js creates a globe with World Terrain for 2D mode and elevation sampling
         globe: false,
     });
 
@@ -29,8 +30,7 @@ async function initCesiumViewer(containerId) {
     // Enable rendering the sky
     viewer.scene.skyAtmosphere.show = true;
 
-    // Enable ambient occlusion (from Cesium example)
-    // TODO: Find better settings for big scale buildings
+    // Enable ambient occlusion
     if (Cesium.PostProcessStageLibrary.isAmbientOcclusionSupported(viewer.scene)) {
         const ambientOcclusion = viewer.scene.postProcessStages.ambientOcclusion;
         ambientOcclusion.enabled = true;
@@ -48,12 +48,12 @@ async function initCesiumViewer(containerId) {
             onlyUsingWithGoogleGeocoder: true,
         });
         viewer.scene.primitives.add(tileset);
+        console.log('[McAtlas] Google Photorealistic 3D Tiles loaded');
     } catch (error) {
-        console.log(`Error loading Photorealistic 3D Tiles tileset.
-          ${error}`);
+        console.error(`[McAtlas] Error loading Photorealistic 3D Tiles: ${error}`);
     }
 
-    // Fly to New York
+    // Fly to New York (default location)
     viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(-73.9986, 40.6976, 800),
         orientation: {
@@ -63,8 +63,8 @@ async function initCesiumViewer(containerId) {
         }
     });
 
-    // Return both viewer and tileset for view-mode manager
+    // Return viewer and tileset
     return { viewer, tileset };
 }
 
-export { initCesiumViewer }
+export { initCesiumViewer };

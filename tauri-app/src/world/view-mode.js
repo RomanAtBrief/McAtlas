@@ -12,18 +12,25 @@ async function initViewMode(cesiumViewer, googleTileset) {
   viewer = cesiumViewer;
   tileset3D = googleTileset;
   
-  // Create a globe for 2D mode
+  // Create a separate globe for 2D mode (like original)
   globe2D = new Cesium.Globe(Cesium.Ellipsoid.WGS84);
   
-  // Add Google Maps 2D Satellite imagery (no labels)
-  // Using Google2DImageryProvider with asset 3830182
+  // Add Cesium World Terrain for elevation sampling
   try {
-    const imageryProvider = await Cesium.Google2DImageryProvider.fromIonAssetId({
-      assetId: 3830182
-    });
-    globe2D.imageryLayers.addImageryProvider(imageryProvider);
+    const worldTerrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(1);
+    globe2D.terrainProvider = worldTerrain;
+    console.log('[McAtlas] World Terrain loaded for 2D globe');
   } catch (error) {
-    console.error('Failed to load Google 2D imagery:', error);
+    console.error('[McAtlas] Failed to load World Terrain:', error);
+  }
+  
+  // Add Google Maps 2D Satellite imagery (no labels)
+  try {
+    const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(3830182);
+    globe2D.imageryLayers.addImageryProvider(imageryProvider);
+    console.log('[McAtlas] Google 2D imagery loaded');
+  } catch (error) {
+    console.error('[McAtlas] Failed to load Google 2D imagery:', error);
   }
 }
 
@@ -32,25 +39,20 @@ function switchTo2D() {
   if (currentMode === '2D') return;
   
   // Get the point the camera is looking at (center of screen)
-  // This is more accurate than camera position for angled views
   const windowCenter = new Cesium.Cartesian2(
     viewer.canvas.clientWidth / 2,
     viewer.canvas.clientHeight / 2
   );
   
-  // Pick the position on the globe/tileset at screen center
-  const ray = viewer.camera.getPickRay(windowCenter);
-  const targetPosition = viewer.scene.globe?.pick(ray, viewer.scene) 
-    || viewer.scene.pickPosition(windowCenter);
+  // Pick the position on the tileset at screen center
+  const targetPosition = viewer.scene.pickPosition(windowCenter);
   
   let lon, lat, height;
   
   if (targetPosition) {
-    // Use the look-at target for lon/lat
     const targetCartographic = Cesium.Cartographic.fromCartesian(targetPosition);
     lon = Cesium.Math.toDegrees(targetCartographic.longitude);
     lat = Cesium.Math.toDegrees(targetCartographic.latitude);
-    // Keep camera height from current position
     height = viewer.camera.positionCartographic.height;
   } else {
     // Fallback to camera position if pick fails
@@ -61,7 +63,9 @@ function switchTo2D() {
   }
   
   // Hide 3D tileset
-  tileset3D.show = false;
+  if (tileset3D) {
+    tileset3D.show = false;
+  }
   
   // Attach globe to scene (only once) and show it
   if (!globeInitialized) {
@@ -80,6 +84,11 @@ function switchTo2D() {
     }
   });
   
+  // ============ LOCK CAMERA IN 2D MODE ============
+  // Disable tilt only - enableRotate is needed for panning in top-down view
+  viewer.scene.screenSpaceCameraController.enableTilt = false;
+  viewer.scene.screenSpaceCameraController.enableLook = false;
+  
   currentMode = '2D';
 }
 
@@ -87,7 +96,7 @@ function switchTo2D() {
 function switchTo3D() {
   if (currentMode === '3D') return;
   
-  // In 2D top-down view, camera position IS the target (looking straight down)
+  // In 2D top-down view, camera position IS the target
   const cartographic = viewer.camera.positionCartographic;
   const lon = Cesium.Math.toDegrees(cartographic.longitude);
   const lat = Cesium.Math.toDegrees(cartographic.latitude);
@@ -99,16 +108,18 @@ function switchTo3D() {
   }
   
   // Show 3D tileset
-  tileset3D.show = true;
+  if (tileset3D) {
+    tileset3D.show = true;
+  }
+  
+  // ============ UNLOCK CAMERA IN 3D MODE ============
+  // Re-enable full camera control
+  viewer.scene.screenSpaceCameraController.enableTilt = true;
+  viewer.scene.screenSpaceCameraController.enableLook = true;
   
   // Calculate range to maintain similar ground coverage
-  // In top-down: height = distance to ground
-  // In angled view: we need to compensate for the pitch angle
   const pitch = Cesium.Math.toRadians(-25);
   const heading = Cesium.Math.toRadians(-45);
-  
-  // range * sin(|pitch|) = height, so range = height / sin(|pitch|)
-  // This keeps the camera at roughly the same altitude
   const range = height / Math.sin(Math.abs(pitch));
   
   const target = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
@@ -139,4 +150,9 @@ function getCurrentMode() {
   return currentMode;
 }
 
-export { initViewMode, toggleViewMode, getCurrentMode, switchTo2D, switchTo3D };
+// Get the 2D globe (for terrain sampling)
+function getGlobe2D() {
+  return globe2D;
+}
+
+export { initViewMode, toggleViewMode, getCurrentMode, switchTo2D, switchTo3D, getGlobe2D };

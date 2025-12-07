@@ -5,6 +5,7 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 
 // Import RhinoCommon namespaces
 using Rhino;
@@ -182,7 +183,7 @@ namespace rhino_plugin
             return index;
         }
 
-        // Export cesium_massing layer to GLB on disk (UI thread) and return JSON
+        // Export cesium_massing layer to GLB and cesium_clip layer to clipping polygons
         private string GetGeometryJsonInternal()
         {
             var doc = RhinoDoc.ActiveDoc;
@@ -203,10 +204,8 @@ namespace rhino_plugin
                 return @"{""error"":""EarthAnchorPoint not set. Please import a map first.""}";
 
             // ============ DEBUG LOGGING ============
-            RhinoApp.WriteLine("[McAtlas] ========== COORDINATE DEBUG ==========");
-            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.Latitude: {anchor.EarthBasepointLatitude:F8}");
-            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.Longitude: {anchor.EarthBasepointLongitude:F8}");
-            RhinoApp.WriteLine($"[McAtlas] EarthAnchor.ModelBasePoint: ({anchor.ModelBasePoint.X:F3}, {anchor.ModelBasePoint.Y:F3}, {anchor.ModelBasePoint.Z:F3})");
+            RhinoApp.WriteLine("[McAtlas] ========== EXPORT START ==========");
+            RhinoApp.WriteLine($"[McAtlas] EarthAnchor: lat={anchor.EarthBasepointLatitude:F8}, lon={anchor.EarthBasepointLongitude:F8}");
             RhinoApp.WriteLine($"[McAtlas] Doc.ModelUnitSystem: {doc.ModelUnitSystem}");
 
             // Calculate bounding box of all objects
@@ -226,7 +225,7 @@ namespace rhino_plugin
                 bbox.Min.Z
             );
 
-            RhinoApp.WriteLine($"[McAtlas] Model center in Rhino: ({modelCenter.X:F3}, {modelCenter.Y:F3}, {modelCenter.Z:F3})");
+            RhinoApp.WriteLine($"[McAtlas] Model center: ({modelCenter.X:F3}, {modelCenter.Y:F3}, {modelCenter.Z:F3})");
 
             // Get transformation from model to earth coordinates
             var modelToEarth = anchor.GetModelToEarthTransform(doc.ModelUnitSystem);
@@ -238,41 +237,14 @@ namespace rhino_plugin
             // NOTE: Transform returns X=longitude, Y=latitude, Z=elevation
             double lat = earthPoint.Y;
             double lon = earthPoint.X;
-            double height = bbox.Min.Z;
+            double height = bbox.Min.Z; // Model's Z offset from ground
 
-            RhinoApp.WriteLine($"[McAtlas] Transform result: lat={lat:F8}, lon={lon:F8}");
+            RhinoApp.WriteLine($"[McAtlas] Position: lat={lat:F8}, lon={lon:F8}, height={height:F3}");
 
-            // ============ COORDINATE VERIFICATION ============
-            RhinoApp.WriteLine($"[McAtlas] === COORDINATE VERIFICATION ===");
-            RhinoApp.WriteLine($"[McAtlas] Model offset from origin: X={modelCenter.X:F3}m, Y={modelCenter.Y:F3}m");
+            // ============ EXPORT CLIPPING POLYGONS ============
+            var clippingPolygonsJson = GetClippingPolygonsJson(doc, anchor, modelToEarth);
 
-            // Calculate what the lat/lon offset SHOULD be
-            // At this latitude, 1 degree lat ≈ 111,320m, 1 degree lon ≈ 111,320 * cos(lat)
-            double latRadians = anchor.EarthBasepointLatitude * Math.PI / 180.0;
-            double metersPerDegreeLat = 111320.0;
-            double metersPerDegreeLon = 111320.0 * Math.Cos(latRadians);
-
-            double expectedLatOffset = modelCenter.Y / metersPerDegreeLat;
-            double expectedLonOffset = modelCenter.X / metersPerDegreeLon;
-
-            double expectedLat = anchor.EarthBasepointLatitude + expectedLatOffset;
-            double expectedLon = anchor.EarthBasepointLongitude + expectedLonOffset;
-
-            RhinoApp.WriteLine($"[McAtlas] Meters per degree: lat={metersPerDegreeLat:F1}, lon={metersPerDegreeLon:F1}");
-            RhinoApp.WriteLine($"[McAtlas] Expected offset: dLat={expectedLatOffset:F8}, dLon={expectedLonOffset:F8}");
-            RhinoApp.WriteLine($"[McAtlas] Expected result: lat={expectedLat:F8}, lon={expectedLon:F8}");
-            RhinoApp.WriteLine($"[McAtlas] Transform result: lat={lat:F8}, lon={lon:F8}");
-            RhinoApp.WriteLine($"[McAtlas] Difference: dLat={lat - expectedLat:F8}, dLon={lon - expectedLon:F8}");
-
-            // Convert difference to meters
-            double latErrorMeters = (lat - expectedLat) * metersPerDegreeLat;
-            double lonErrorMeters = (lon - expectedLon) * metersPerDegreeLon;
-            RhinoApp.WriteLine($"[McAtlas] Error in meters: X={lonErrorMeters:F2}m, Y={latErrorMeters:F2}m");
-            RhinoApp.WriteLine($"[McAtlas] === END VERIFICATION ===");
-            // ==================================================
-
-            RhinoApp.WriteLine($"[McAtlas] Height (bbox.Min.Z): {height:F3}");
-
+            // ============ EXPORT GLB ============
             // Get or create default material
             int defaultMatIndex = GetOrCreateDefaultMaterial(doc);
 
@@ -284,11 +256,10 @@ namespace rhino_plugin
 
             var glbPath = Path.Combine(exportDir, "mcatlas_massing.glb");
 
-            // ============ CREATE CENTERED COPIES FOR EXPORT ============
-            // We need to export geometry centered at origin so Cesium places it correctly
+            // Create centered copies for export
             var moveToOrigin = Transform.Translation(-modelCenter.X, -modelCenter.Y, -bbox.Min.Z);
 
-            RhinoApp.WriteLine($"[McAtlas] Moving geometry to origin for export...");
+            RhinoApp.WriteLine($"[McAtlas] Creating temp objects at origin for GLB export...");
 
             var tempGuids = new List<Guid>();
             foreach (var obj in objs)
@@ -310,7 +281,7 @@ namespace rhino_plugin
                 tempGuids.Add(guid);
             }
 
-            RhinoApp.WriteLine($"[McAtlas] Created {tempGuids.Count} temp objects at origin");
+            RhinoApp.WriteLine($"[McAtlas] Created {tempGuids.Count} temp objects");
 
             // Deselect all, then select only temp objects
             doc.Objects.UnselectAll();
@@ -333,13 +304,13 @@ namespace rhino_plugin
 
             doc.Objects.UnselectAll();
 
-            RhinoApp.WriteLine($"[McAtlas] Temp objects deleted, export ok={ok}");
-            RhinoApp.WriteLine("[McAtlas] ========== END DEBUG ==========");
+            RhinoApp.WriteLine($"[McAtlas] GLB export: {(ok ? "SUCCESS" : "FAILED")}");
+            RhinoApp.WriteLine("[McAtlas] ========== EXPORT COMPLETE ==========");
 
             if (!ok)
                 return @"{""error"":""Export command failed""}";
 
-            // Build JSON with calculated position
+            // Build JSON response with position and clipping polygons
             var safePath = glbPath.Replace("\\", "\\\\");
             var sb = new StringBuilder();
             sb.Append("{");
@@ -347,10 +318,128 @@ namespace rhino_plugin
             sb.Append(@"""position"":{");
             sb.AppendFormat(System.Globalization.CultureInfo.InvariantCulture,
                 @"""lat"":{0},""lon"":{1},""height"":{2}", lat, lon, height);
-            sb.Append("}");
+            sb.Append("},");
+            sb.Append(@"""clippingPolygons"":").Append(clippingPolygonsJson);
             sb.Append("}");
 
             return sb.ToString();
+        }
+
+        // Get clipping polygons from cesium_clip layer as JSON array
+        private string GetClippingPolygonsJson(RhinoDoc doc, EarthAnchorPoint anchor, Transform modelToEarth)
+        {
+            var clipLayer = doc.Layers.FindName("cesium_clip");
+            if (clipLayer == null)
+            {
+                RhinoApp.WriteLine("[McAtlas] No cesium_clip layer found");
+                return "[]";
+            }
+
+            var clipObjs = doc.Objects.FindByLayer(clipLayer);
+            if (clipObjs == null || clipObjs.Length == 0)
+            {
+                RhinoApp.WriteLine("[McAtlas] No objects on cesium_clip layer");
+                return "[]";
+            }
+
+            RhinoApp.WriteLine($"[McAtlas] Found {clipObjs.Length} object(s) on cesium_clip layer");
+
+            var polygons = new List<string>();
+
+            foreach (var obj in clipObjs)
+            {
+                Curve curve = null;
+
+                // Get curve from object
+                if (obj.Geometry is Curve c)
+                {
+                    curve = c;
+                }
+                else if (obj.Geometry is Extrusion ext)
+                {
+                    // Get the base curve of extrusion
+                    curve = ext.ToBrep()?.Faces[0]?.OuterLoop?.To3dCurve();
+                }
+                else if (obj.Geometry is Brep brep)
+                {
+                    // Get outer loop of first face
+                    if (brep.Faces.Count > 0)
+                    {
+                        curve = brep.Faces[0].OuterLoop?.To3dCurve();
+                    }
+                }
+
+                if (curve == null)
+                {
+                    RhinoApp.WriteLine($"[McAtlas] Skipping non-curve object: {obj.Geometry.GetType().Name}");
+                    continue;
+                }
+
+                if (!curve.IsClosed)
+                {
+                    RhinoApp.WriteLine("[McAtlas] Skipping open curve (must be closed for clipping)");
+                    continue;
+                }
+
+                // Get polyline points from curve
+                Polyline polyline;
+                if (!curve.TryGetPolyline(out polyline))
+                {
+                    // Convert to polyline with tolerance
+                    var nurbs = curve.ToNurbsCurve();
+                    if (nurbs != null)
+                    {
+                        // Approximate curve with polyline
+                        var pline = new PolylineCurve(curve.DivideByCount(64, true)
+                            .Select(t => curve.PointAt(t)).ToArray());
+                        pline.TryGetPolyline(out polyline);
+                    }
+                }
+
+                if (polyline == null || polyline.Count < 3)
+                {
+                    RhinoApp.WriteLine("[McAtlas] Could not convert curve to polyline");
+                    continue;
+                }
+
+                // Convert points to lat/lon
+                var coordList = new List<string>();
+
+                // Remove duplicate closing point if present
+                int count = polyline.IsClosed ? polyline.Count - 1 : polyline.Count;
+
+                for (int i = 0; i < count; i++)
+                {
+                    Point3d pt = polyline[i];
+                    Point3d earthPt = pt;
+                    earthPt.Transform(modelToEarth);
+
+                    // X = longitude, Y = latitude
+                    double ptLon = earthPt.X;
+                    double ptLat = earthPt.Y;
+
+                    coordList.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "{0},{1}", ptLon, ptLat));
+                }
+
+                if (coordList.Count >= 3)
+                {
+                    // Format: [lon1, lat1, lon2, lat2, ...] as flat array for Cesium
+                    var flatCoords = string.Join(",", coordList);
+                    polygons.Add($"[{flatCoords}]");
+
+                    RhinoApp.WriteLine($"[McAtlas] Clipping polygon: {coordList.Count} vertices");
+                }
+            }
+
+            if (polygons.Count == 0)
+            {
+                RhinoApp.WriteLine("[McAtlas] No valid clipping polygons found");
+                return "[]";
+            }
+
+            RhinoApp.WriteLine($"[McAtlas] Total clipping polygons: {polygons.Count}");
+            return "[" + string.Join(",", polygons) + "]";
         }
 
         // Set EarthAnchorPoint from Tauri coordinates

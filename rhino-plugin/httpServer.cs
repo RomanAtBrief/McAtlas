@@ -12,6 +12,8 @@ using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Display;
+using Rhino.FileIO;          // <-- for FileGltfWriteOptions
+using Rhino.Collections;     // <-- for ArchivableDictionary
 
 // Namespace
 namespace rhino_plugin
@@ -173,11 +175,13 @@ namespace rhino_plugin
                     return i;
             }
 
-            var material = new Material();
-            material.Name = materialName;
-            material.DiffuseColor = System.Drawing.Color.FromArgb(245, 245, 245);
-            material.SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255);
-            material.Shine = 0.8;
+            var material = new Material
+            {
+                Name = materialName,
+                DiffuseColor = System.Drawing.Color.FromArgb(245, 245, 245),
+                SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255),
+                Shine = 0.8
+            };
 
             int index = doc.Materials.Add(material);
             return index;
@@ -206,48 +210,64 @@ namespace rhino_plugin
             // ============ DEBUG LOGGING ============
             RhinoApp.WriteLine("[McAtlas] ========== EXPORT START ==========");
             RhinoApp.WriteLine($"[McAtlas] EarthAnchor: lat={anchor.EarthBasepointLatitude:F8}, lon={anchor.EarthBasepointLongitude:F8}");
-            RhinoApp.WriteLine($"[McAtlas] Doc.ModelUnitSystem: {doc.ModelUnitSystem}");
-
-            // Calculate bounding box of all objects
-            BoundingBox bbox = BoundingBox.Empty;
-            foreach (var obj in objs)
-            {
-                bbox.Union(obj.Geometry.GetBoundingBox(true));
-            }
-
-            RhinoApp.WriteLine($"[McAtlas] BBox.Min: ({bbox.Min.X:F3}, {bbox.Min.Y:F3}, {bbox.Min.Z:F3})");
-            RhinoApp.WriteLine($"[McAtlas] BBox.Max: ({bbox.Max.X:F3}, {bbox.Max.Y:F3}, {bbox.Max.Z:F3})");
-
-            // Get center point at base (Z = bbox.Min.Z)
-            Point3d modelCenter = new Point3d(
-                (bbox.Min.X + bbox.Max.X) / 2.0,
-                (bbox.Min.Y + bbox.Max.Y) / 2.0,
-                bbox.Min.Z
-            );
-
-            RhinoApp.WriteLine($"[McAtlas] Model center: ({modelCenter.X:F3}, {modelCenter.Y:F3}, {modelCenter.Z:F3})");
+            RhinoApp.WriteLine($"[McAtlas] Found {objs.Length} objects on cesium_massing layer");
 
             // Get transformation from model to earth coordinates
             var modelToEarth = anchor.GetModelToEarthTransform(doc.ModelUnitSystem);
 
-            // Transform the center point to get lat/lon
-            Point3d earthPoint = modelCenter;
-            earthPoint.Transform(modelToEarth);
+            // Calculate lat/lon of Rhino origin (0,0,0)
+            // This is where Cesium will place the GLB's origin
+            Point3d rhinoOrigin = Point3d.Origin;
+            rhinoOrigin.Transform(modelToEarth);
 
-            // NOTE: Transform returns X=longitude, Y=latitude, Z=elevation
-            double lat = earthPoint.Y;
-            double lon = earthPoint.X;
-            double height = bbox.Min.Z; // Model's Z offset from ground
+            double lat = rhinoOrigin.Y;  // Transform returns X=lon, Y=lat
+            double lon = rhinoOrigin.X;
+            double height = 0;           // Origin at ground level
 
-            RhinoApp.WriteLine($"[McAtlas] Position: lat={lat:F8}, lon={lon:F8}, height={height:F3}");
+            RhinoApp.WriteLine($"[McAtlas] Rhino origin maps to: lat={lat:F8}, lon={lon:F8}");
 
-            // ============ EXPORT CLIPPING POLYGONS ============
+            // ============ CLIPPING POLYGONS ============
             var clippingPolygonsJson = GetClippingPolygonsJson(doc, anchor, modelToEarth);
 
-            // ============ EXPORT GLB ============
-            // Get or create default material
+            // ============ DEFAULT MATERIAL PASS ============
             int defaultMatIndex = GetOrCreateDefaultMaterial(doc);
+            int fallbackCount = 0;
 
+            foreach (var obj in objs)
+            {
+                var atts = obj.Attributes.Duplicate();
+
+                bool hasObjectMaterial =
+                    atts.MaterialSource == ObjectMaterialSource.MaterialFromObject &&
+                    atts.MaterialIndex >= 0;
+
+                bool hasLayerMaterial = false;
+                if (atts.LayerIndex >= 0 && atts.LayerIndex < doc.Layers.Count)
+                {
+                    var objLayer = doc.Layers[atts.LayerIndex];
+                    // -1 means no render material assigned
+                    hasLayerMaterial = objLayer.RenderMaterialIndex >= 0;
+                }
+
+                bool needsFallbackMaterial = !(hasObjectMaterial || hasLayerMaterial);
+
+                if (needsFallbackMaterial)
+                {
+                    atts.MaterialIndex = defaultMatIndex;
+                    atts.MaterialSource = ObjectMaterialSource.MaterialFromObject;
+
+                    // Force a neutral light grey as object colour
+                    atts.ColorSource = ObjectColorSource.ColorFromObject;
+                    atts.ObjectColor = System.Drawing.Color.FromArgb(245, 245, 245);
+
+                    doc.Objects.ModifyAttributes(obj, atts, true);
+                    fallbackCount++;
+                }
+            }
+
+            RhinoApp.WriteLine($"[McAtlas] Default material applied to {fallbackCount} object(s) with no explicit material");
+
+            // ============ EXPORT GLB ============
             // Export directory: Documents/McAtlas
             var exportDir = Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
@@ -255,56 +275,63 @@ namespace rhino_plugin
             Directory.CreateDirectory(exportDir);
 
             var glbPath = Path.Combine(exportDir, "mcatlas_massing.glb");
+            RhinoApp.WriteLine($"[McAtlas] Export path: {glbPath}");
 
-            // Create centered copies for export
-            var moveToOrigin = Transform.Translation(-modelCenter.X, -modelCenter.Y, -bbox.Min.Z);
-
-            RhinoApp.WriteLine($"[McAtlas] Creating temp objects at origin for GLB export...");
-
-            var tempGuids = new List<Guid>();
+            // Select objects on cesium_massing layer
+            doc.Objects.UnselectAll();
             foreach (var obj in objs)
-            {
-                // Duplicate geometry and transform to origin
-                var dupGeom = obj.Geometry.Duplicate();
-                dupGeom.Transform(moveToOrigin);
+                obj.Select(true);
 
-                // Copy attributes and apply material
-                var attributes = obj.Attributes.Duplicate();
-                if (attributes.MaterialIndex == -1 || attributes.MaterialSource == ObjectMaterialSource.MaterialFromLayer)
+            RhinoApp.WriteLine($"[McAtlas] Selected {objs.Length} objects for export");
+
+            // Build explicit glTF export options (double-sided, no display-color fallback)
+            var gltfOptions = new FileGltfWriteOptions
+            {
+                // Coordinate system
+                MapZToY = true,
+
+                // Geometry / shading
+                ExportMaterials = true,
+                ExportTextureCoordinates = true,
+                ExportVertexNormals = true,
+                ExportOpenMeshes = true,
+                ExportLayers = false,
+
+                // Key flags:
+                // false = glTF doubleSided = true (no backface culling)
+                CullBackfaces = false,
+                // Prevent exporter from inventing materials from display/layer colours
+                UseDisplayColorForUnsetMaterials = false,
+
+                // Keep it simple for now
+                UseDracoCompression = false
+            };
+
+            ArchivableDictionary dict = gltfOptions.ToDictionary();
+
+            RhinoApp.WriteLine("[McAtlas] Exporting GLB with double-sided materials...");
+            bool ok = doc.ExportSelected(glbPath, dict);
+
+            // Cleanup selection
+            doc.Objects.UnselectAll();
+
+            // ============ FILE SIZE CHECK ============
+            if (File.Exists(glbPath))
+            {
+                var fileInfo = new FileInfo(glbPath);
+                RhinoApp.WriteLine($"[McAtlas] GLB file size: {fileInfo.Length} bytes ({fileInfo.Length / 1024.0:F1} KB)");
+                if (fileInfo.Length < 1000)
                 {
-                    attributes.MaterialIndex = defaultMatIndex;
-                    attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
+                    RhinoApp.WriteLine("[McAtlas] WARNING: GLB file is suspiciously small - export may have failed!");
                 }
-
-                // Add temp object to doc
-                var guid = doc.Objects.Add(dupGeom, attributes);
-                tempGuids.Add(guid);
             }
-
-            RhinoApp.WriteLine($"[McAtlas] Created {tempGuids.Count} temp objects");
-
-            // Deselect all, then select only temp objects
-            doc.Objects.UnselectAll();
-            foreach (var guid in tempGuids)
+            else
             {
-                var tempObj = doc.Objects.FindId(guid);
-                if (tempObj != null)
-                    tempObj.Select(true);
+                RhinoApp.WriteLine("[McAtlas] ERROR: GLB file does not exist after export!");
+                ok = false;
             }
 
-            // Export selected objects to glTF/GLB
-            var exportCmd = $"_-Export \"{glbPath}\" _Enter _Enter";
-            bool ok = RhinoApp.RunScript(exportCmd, false);
-
-            // Delete temp objects
-            foreach (var guid in tempGuids)
-            {
-                doc.Objects.Delete(guid, true);
-            }
-
-            doc.Objects.UnselectAll();
-
-            RhinoApp.WriteLine($"[McAtlas] GLB export: {(ok ? "SUCCESS" : "FAILED")}");
+            RhinoApp.WriteLine($"[McAtlas] GLB export (double-sided): {(ok ? "SUCCESS" : "FAILED")}");
             RhinoApp.WriteLine("[McAtlas] ========== EXPORT COMPLETE ==========");
 
             if (!ok)
@@ -389,7 +416,6 @@ namespace rhino_plugin
                     var nurbs = curve.ToNurbsCurve();
                     if (nurbs != null)
                     {
-                        // Approximate curve with polyline
                         var pline = new PolylineCurve(curve.DivideByCount(64, true)
                             .Select(t => curve.PointAt(t)).ToArray());
                         pline.TryGetPolyline(out polyline);
@@ -578,9 +604,11 @@ namespace rhino_plugin
                 var layer = doc.Layers.FindName(layerName);
                 if (layer == null)
                 {
-                    var newLayer = new Layer();
-                    newLayer.Name = layerName;
-                    newLayer.Color = System.Drawing.Color.Gray;
+                    var newLayer = new Layer
+                    {
+                        Name = layerName,
+                        Color = System.Drawing.Color.Gray
+                    };
                     doc.Layers.Add(newLayer);
                     layer = doc.Layers.FindName(layerName);
                 }

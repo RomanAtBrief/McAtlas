@@ -22,7 +22,7 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="RhinoCommon" Version="8.25.25328.11001" ExcludeAssets="runtime" />
   </ItemGroup>
   
 </Project>

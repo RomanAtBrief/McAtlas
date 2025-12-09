@@ -9,16 +9,21 @@ import { getGlobe2D, getCurrentMode } from "../world/view-mode.js";
 let currentModel = null;
 let currentClippingPolygons = null;
 
+// Setup scene lighting (call once after viewer is created)
+function setupSceneLighting(viewer) {
+  viewer.scene.light.intensity = 18.0;
+}
+
 // Load GLB from disk and add to Cesium viewer with clipping
 async function addModelFromRhino(viewer, tileset, data) {
   await logToRhino("========== CESIUM SYNC START ==========");
-  
+
   // Remove old model if exists
   if (currentModel) {
     viewer.entities.remove(currentModel);
     await logToRhino("Removed previous model");
   }
-  
+
   // Check for errors
   if (!data || data.error) {
     await logToRhino("ERROR: " + (data && data.error));
@@ -28,13 +33,13 @@ async function addModelFromRhino(viewer, tileset, data) {
   }
 
   const { glbPath, position, clippingPolygons } = data;
-  
+
   await logToRhino("RECEIVED FROM RHINO:");
   await logToRhino(`  position.lat: ${position.lat}`);
   await logToRhino(`  position.lon: ${position.lon}`);
   await logToRhino(`  position.height: ${position.height}`);
   await logToRhino(`  clippingPolygons: ${clippingPolygons ? clippingPolygons.length : 0}`);
-  
+
   if (!glbPath) {
     await logToRhino("ERROR: No glbPath");
     return;
@@ -64,10 +69,10 @@ async function addModelFromRhino(viewer, tileset, data) {
     // Use the 2D globe's terrain (World Terrain) for ground elevation
     // This gives us true ground level, not building roofs from 3D tiles
     await logToRhino("Sampling terrain elevation...");
-    
+
     const cartographic = Cesium.Cartographic.fromDegrees(position.lon, position.lat);
     let terrainHeight = 0;
-    
+
     const globe = getGlobe2D();
     if (globe && globe.terrainProvider) {
       try {
@@ -81,7 +86,7 @@ async function addModelFromRhino(viewer, tileset, data) {
     } else {
       await logToRhino("  WARNING: Globe/terrain not ready, using height 0");
     }
-    
+
     // Final height = terrain ground level + model's Z offset from Rhino
     const finalHeight = terrainHeight + position.height;
     await logToRhino(`  Final height: ${finalHeight.toFixed(2)}m (terrain: ${terrainHeight.toFixed(2)} + model Z: ${position.height})`);
@@ -106,14 +111,17 @@ async function addModelFromRhino(viewer, tileset, data) {
       position: positionCartesian,
       orientation: orientation,
       model: {
-        uri: url
+        uri: url,
+        environmentMapOptions: {
+          enabled: false  // Disables the blue tint completely
+        }
       }
     });
-    
+
     currentModel = modelEntity;
-    
+
     await logToRhino("Model entity created successfully");
-    
+
     // Fly to model - but respect current view mode
     if (getCurrentMode() === '2D') {
       // In 2D mode, pan/zoom to model but stay top-down
@@ -126,7 +134,7 @@ async function addModelFromRhino(viewer, tileset, data) {
       // In 3D mode, normal flyTo
       viewer.flyTo(modelEntity);
     }
-    
+
     await logToRhino("========== CESIUM SYNC COMPLETE ==========");
 
   } catch (error) {
@@ -139,7 +147,7 @@ async function addModelFromRhino(viewer, tileset, data) {
 // Apply clipping polygons to cut holes in 3D tiles
 async function applyClippingPolygons(viewer, tileset, polygons) {
   await logToRhino(`Applying ${polygons.length} clipping polygon(s)...`);
-  
+
   // Remove existing clipping first
   if (currentClippingPolygons) {
     tileset.clippingPolygons = undefined;
@@ -147,43 +155,43 @@ async function applyClippingPolygons(viewer, tileset, polygons) {
       viewer.scene.globe.clippingPolygons = undefined;
     }
   }
-  
+
   // Create Cesium ClippingPolygon objects
   const cesiumPolygons = [];
-  
+
   for (let i = 0; i < polygons.length; i++) {
     const polygon = polygons[i];
     await logToRhino(`  Polygon ${i + 1}: ${polygon.length / 2} points`);
-    
+
     try {
       // polygon is array of [lon, lat, lon, lat, ...] in degrees
       const positions = Cesium.Cartesian3.fromDegreesArray(polygon);
-      
+
       const clippingPolygon = new Cesium.ClippingPolygon({
         positions: positions
       });
-      
+
       cesiumPolygons.push(clippingPolygon);
     } catch (error) {
       await logToRhino(`  ERROR creating polygon ${i + 1}: ${error.message}`);
     }
   }
-  
+
   if (cesiumPolygons.length > 0) {
     // Apply to 3D tileset
     const clippingCollection = new Cesium.ClippingPolygonCollection({
       polygons: cesiumPolygons
     });
-    
+
     tileset.clippingPolygons = clippingCollection;
-    
+
     // Also apply to globe (for terrain mode)
     if (viewer.scene.globe) {
       viewer.scene.globe.clippingPolygons = new Cesium.ClippingPolygonCollection({
         polygons: cesiumPolygons.map(p => new Cesium.ClippingPolygon({ positions: p.positions }))
       });
     }
-    
+
     currentClippingPolygons = clippingCollection;
     await logToRhino(`Applied ${cesiumPolygons.length} clipping polygon(s) to 3D tiles`);
   }
@@ -193,14 +201,14 @@ async function applyClippingPolygons(viewer, tileset, polygons) {
 async function removeClipping(viewer, tileset) {
   if (currentClippingPolygons) {
     await logToRhino("Removing existing clipping polygons...");
-    
+
     if (tileset) {
       tileset.clippingPolygons = undefined;
     }
     if (viewer.scene.globe) {
       viewer.scene.globe.clippingPolygons = undefined;
     }
-    
+
     currentClippingPolygons = null;
   }
 }
@@ -214,4 +222,4 @@ async function flyToCurrentModel(viewer) {
   }
 }
 
-export { addModelFromRhino, flyToCurrentModel };
+export { addModelFromRhino, flyToCurrentModel, setupSceneLighting };

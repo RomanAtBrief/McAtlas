@@ -164,26 +164,41 @@ namespace rhino_plugin
             return result;
         }
 
-        // Get or create default light gray material
+        // Get or create default PBR material for GLB export
         private int GetOrCreateDefaultMaterial(RhinoDoc doc)
         {
-            var materialName = "McAtlas_Default_Gray";
+            var materialName = "McAtlas_Default_White";
 
+            // Check if already exists
             for (int i = 0; i < doc.Materials.Count; i++)
             {
                 if (doc.Materials[i].Name == materialName)
                     return i;
             }
 
+            // Create a Physically Based material (required for proper glTF export)
             var material = new Material
             {
-                Name = materialName,
-                DiffuseColor = System.Drawing.Color.FromArgb(245, 245, 245),
-                SpecularColor = System.Drawing.Color.FromArgb(255, 255, 255),
-                Shine = 0.8
+                Name = materialName
             };
 
+            // Initialize PBR mode first
+            material.ToPhysicallyBased();
+
+            // Enable PBR and set properties
+            var pbr = material.PhysicallyBased;
+            pbr.BaseColor = Color4f.White;  // Pure white
+            pbr.Metallic = 0.0;             // Non-metallic (important!)
+            pbr.Roughness = 0.8;            // Mid roughness (0=shiny, 1=matte)
+            pbr.Opacity = 1.0;
+            pbr.OpacityIOR = 1.5;
+
+            // Sync to legacy properties for display
+            material.DiffuseColor = System.Drawing.Color.White;
+
             int index = doc.Materials.Add(material);
+            RhinoApp.WriteLine($"[McAtlas] Created PBR material '{materialName}' at index {index}");
+
             return index;
         }
 
@@ -198,9 +213,20 @@ namespace rhino_plugin
             if (layer == null)
                 return @"{""error"":""Layer 'cesium_massing' not found""}";
 
+            // Check if layer is locked - temporarily unlock for export
+            bool wasLocked = layer.IsLocked;
+            if (wasLocked)
+            {
+                RhinoApp.WriteLine("[McAtlas] Layer was locked - temporarily unlocking for export");
+                layer.IsLocked = false;
+            }
+
             var objs = doc.Objects.FindByLayer(layer);
             if (objs == null || objs.Length == 0)
+            {
+                if (wasLocked) layer.IsLocked = true;  // Restore lock state
                 return @"{""error"":""No objects on 'cesium_massing'""}";
+            }
 
             // Check if EarthAnchorPoint is set
             var anchor = doc.EarthAnchorPoint;
@@ -314,6 +340,13 @@ namespace rhino_plugin
 
             // Cleanup selection
             doc.Objects.UnselectAll();
+
+            // Restore layer lock state
+            if (wasLocked)
+            {
+                layer.IsLocked = true;
+                RhinoApp.WriteLine("[McAtlas] Restored layer lock state");
+            }
 
             // ============ FILE SIZE CHECK ============
             if (File.Exists(glbPath))

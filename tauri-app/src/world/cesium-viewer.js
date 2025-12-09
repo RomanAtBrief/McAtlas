@@ -35,10 +35,11 @@ async function initCesiumViewer(containerId) {
         const ambientOcclusion = viewer.scene.postProcessStages.ambientOcclusion;
         ambientOcclusion.enabled = true;
         ambientOcclusion.uniforms.ambientOcclusionOnly = false;
-        ambientOcclusion.uniforms.intensity = 3.0;
-        ambientOcclusion.uniforms.bias = 0.1;
-        ambientOcclusion.uniforms.lengthCap = 0.26;
+        ambientOcclusion.uniforms.intensity = 2.0;
+        ambientOcclusion.uniforms.bias = 0.5;
+        ambientOcclusion.uniforms.lengthCap = 0.6;
         ambientOcclusion.uniforms.stepSize = 1.0;
+        ambientOcclusion.uniforms.frustumLength = 1000;
     }
 
     // Add Google Photorealistic 3D Tiles

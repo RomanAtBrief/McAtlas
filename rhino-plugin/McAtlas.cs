@@ -36,9 +36,9 @@ namespace rhino_plugin
             {
                 // Create special layers if they don't exist
                 CreateLayers(doc);
-                
+
                 // Path to the Tauri app in Applications folder
-                string appPath = "/Applications/tauri-app.app";
+                string appPath = "/Applications/chomp-chomp.app";
 
                 // Check if app exists
                 if (!Directory.Exists(appPath))
@@ -49,7 +49,7 @@ namespace rhino_plugin
 
                 // Launch the Tauri app
                 Process.Start("open", appPath);
-                
+
                 RhinoApp.WriteLine("McAtlas launched! Layers created.");
                 return Result.Success;
             }
@@ -59,7 +59,7 @@ namespace rhino_plugin
                 return Result.Failure;
             }
         }
-        
+
         // Create cesium layers if they don't exist
         private void CreateLayers(RhinoDoc doc)
         {
@@ -72,7 +72,7 @@ namespace rhino_plugin
                 doc.Layers.Add(massingLayer);
                 RhinoApp.WriteLine("Created layer: cesium_massing");
             }
-            
+
             // Create cesium_clip layer (for clipping polyline)
             if (doc.Layers.FindName("cesium_clip") == null)
             {

@@ -38,7 +38,7 @@ namespace rhino_plugin
                 CreateLayers(doc);
 
                 // Path to the Tauri app in Applications folder
-                string appPath = "/Applications/chomp-chomp.app";
+                string appPath = "/Applications/atlas.app";
 
                 // Check if app exists
                 if (!Directory.Exists(appPath))

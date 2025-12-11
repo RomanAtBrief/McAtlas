@@ -11,7 +11,7 @@ let currentClippingPolygons = null;
 
 // Setup scene lighting (call once after viewer is created)
 function setupSceneLighting(viewer) {
-  viewer.scene.light.intensity = 18.0;
+  viewer.scene.light.intensity = 20.0;
 }
 
 // Load GLB from disk and add to Cesium viewer with clipping
